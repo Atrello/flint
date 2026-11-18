@@ -3314,8 +3314,12 @@ impl MessagingUi {
 		ctx: &egui::Context,
 		commands: &mut Vec<Command>,
 	) {
-		if let Some(command) = state.request_app_installs() {
+		let now = std::time::Instant::now();
+		if let Some(command) = state.request_app_installs(now) {
 			commands.push(command);
+		}
+		if let Some(delay) = state.app_installs.retry_delay(now) {
+			ctx.request_repaint_after(delay);
 		}
 		let had_edit = self.editing.is_some();
 		self.reconcile_edit(state);

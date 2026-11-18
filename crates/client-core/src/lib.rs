@@ -3106,14 +3106,7 @@ impl State {
 				Ok(())
 			}
 			Event::AppInstalls { result, .. } => {
-				self.app_installs.loading = false;
-				match result {
-					Ok(ids) => {
-						self.app_installs.installed = Some(ids.into_iter().collect());
-						self.app_installs.error = false;
-					}
-					Err(_) => self.app_installs.error = true,
-				}
+				self.apply_app_installs(result);
 				Ok(())
 			}
 			Event::AppInstall {
@@ -3662,6 +3655,7 @@ impl State {
 				channels,
 			} => {
 				self.clear_direct_presences();
+				self.app_installs.reset();
 				// READY starts a complete snapshot; a presence warning may follow it.
 				self.direct_presence_lossy = false;
 				if self
