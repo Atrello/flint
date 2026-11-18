@@ -102,6 +102,7 @@ pub fn valid_gif_video_source(url: &str) -> bool {
 /// Discord attachment or proxied media, as stored by GIFs favorited from messages.
 /// Signed attachment queries are kept verbatim; they are part of the address.
 pub fn valid_discord_media_url(url: &str) -> bool {
+	let url = &*crate::endpoints::discord_form(url);
 	url.len() <= MAX_URL
 		&& url
 			.bytes()
