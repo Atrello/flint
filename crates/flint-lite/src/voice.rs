@@ -16,6 +16,21 @@ pub const RATE: u32 = 48_000;
 /// 20 ms of mono audio at 48 kHz.
 pub const FRAME: usize = 960;
 pub const FRAME_DURATION: Duration = Duration::from_millis(20);
+/// One frame of a ringtone: a 440 Hz tone for one second of every three, at low volume.
+pub fn ringtone_frame(index: u64) -> Vec<f32> {
+	let period = 3 * 50; // frames
+	let on = (index % period) < 50;
+	(0..FRAME)
+		.map(|k| {
+			if !on {
+				return 0.0;
+			}
+			let t = (index * FRAME as u64 + k as u64) as f32 / RATE as f32;
+			0.15 * (2.0 * std::f32::consts::PI * 440.0 * t).sin()
+		})
+		.collect()
+}
+
 /// Remote audio queued per speaker, at most this much (about 300 ms), so latency stays bounded.
 const MAX_QUEUED: usize = (RATE as usize * 3) / 10;
 

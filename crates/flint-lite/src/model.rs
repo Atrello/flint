@@ -126,6 +126,9 @@ pub enum Cmd {
 	StopShare,
 	StartCall(Vec<String>),
 	LeaveCall,
+	SetMuted(bool),
+	AcceptCall(String),
+	DeclineCall(String),
 }
 
 /// Events from the network worker to the UI.
@@ -154,6 +157,8 @@ pub enum Ev {
 	Call {
 		in_call: bool,
 		peers: Vec<String>,
+		ringing_out: Vec<String>,
+		ringing_in: Vec<String>,
 	},
 	/// A remote speaker is being heard. `frames` counts decoded 20 ms frames so far.
 	Voice {
