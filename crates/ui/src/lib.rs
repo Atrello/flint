@@ -372,8 +372,6 @@ pub struct MessagingUi {
 	pub show_hidden_channels: bool,
 	/// Folds the home list's message requests away; the device preference restores it.
 	pub message_requests_collapsed: bool,
-	/// Custom emoji that need Nitro stay out of `:` suggestions and are locked in pickers.
-	pub hide_nitro_emojis: bool,
 	/// Profile cosmetics shown on this device; hidden ones are not downloaded.
 	pub cosmetics: model::CosmeticPreferences,
 	/// Disk budgets and retention for downloaded images.
@@ -3808,7 +3806,6 @@ impl MessagingUi {
 			.and_then(|s| s.cursor.char_range())
 			.filter(|r| r.is_empty())
 			.map(|r| r.primary.index.0);
-		self.mention_menu.hide_nitro_emojis = self.hide_nitro_emojis;
 		self.mention_menu.editing = editing_here;
 		if std::mem::take(&mut self.mention_menu.retry_games) {
 			state.game_mentions.status = client_core::game_mentions::Status::Idle;
@@ -4003,7 +4000,6 @@ impl MessagingUi {
                         }
                         let pick = ui
                             .add_enabled_ui(!application_command && !self.ime_active && !ime_this_frame, |ui| {
-                                self.emoji_picker.hide_nitro_emojis = self.hide_nitro_emojis;
                                 self.emoji_picker.preload = self.preload_on_hover;
                                 self.emoji_picker
                                     .show(ui, state, channel, &mut self.avatars, commands)
@@ -5079,7 +5075,7 @@ impl MessagingUi {
 			.timeline
 			.opening
 			.as_deref()
-			.and_then(markdown::discord_chat_link)
+			.and_then(markdown::chat_link)
 		{
 			self.timeline.opening = None;
 			match state.open_chat_link(link.guild, link.channel, link.message) {
@@ -5810,7 +5806,6 @@ impl MessagingUi {
 							self.reaction_picker
 								.open_reaction(state, message, anchor, trigger);
 						}
-						self.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
 						self.reaction_picker.show_reaction(
 							ui,
 							state,
@@ -7508,6 +7503,7 @@ mod composer_tests {
 
 	#[test]
 	fn joined_invite_cards_open_servers_without_joining_and_preserve_drafts() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		fn button_rect(shape: &egui::Shape, label: &str) -> Option<egui::Rect> {
 			match shape {
 				egui::Shape::Text(text) if text.galley.job.text == label => {
@@ -7543,7 +7539,7 @@ mod composer_tests {
 			.replace(test_support::permission_snapshot(&state))
 			.unwrap();
 		let mut message = state.timeline.get(Id(20)).unwrap().clone();
-		message.content = "https://discord.gg/synthetic".into();
+		message.content = "https://chat.example.com/invite/synthetic".into();
 		state.timeline.insert(message, true, false).unwrap();
 		state.invites.insert(
 			"synthetic".into(),
@@ -7635,7 +7631,8 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn discord_chat_links_navigate_from_message_text_without_opening_a_browser() {
+	fn chat_links_navigate_from_message_text_without_opening_a_browser() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		fn link_rect(shape: &egui::Shape, label: &str) -> Option<egui::Rect> {
 			match shape {
 				egui::Shape::Text(text) if text.galley.job.text.trim() == label => {
@@ -7647,22 +7644,22 @@ mod composer_tests {
 		}
 		for (source, label, target_message) in [
 			(
-				"https://discord.com/channels/100/11",
-				"https://discord.com/channels/100/11",
+				"https://chat.example.com/channels/100/11",
+				"https://chat.example.com/channels/100/11",
 				None,
 			),
 			(
-				"https://discord.com/channels/100/11/25",
+				"https://chat.example.com/channels/100/11/25",
 				"Linked server",
 				Some(Id(25)),
 			),
 			(
-				"<HTTPS://DISCORD.COM:443/channels/100/11/25?jump=1#message>",
+				"<HTTPS://CHAT.EXAMPLE.COM:443/channels/100/11/25?jump=1#message>",
 				"Linked server",
 				Some(Id(25)),
 			),
 			(
-				"[Other chat](https://discord.com/channels/100/11/25)",
+				"[Other chat](https://chat.example.com/channels/100/11/25)",
 				"Other chat",
 				Some(Id(25)),
 			),
@@ -7762,7 +7759,8 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn malformed_discord_origins_dispatch_externally_without_native_routes_or_metadata() {
+	fn malformed_server_origins_dispatch_externally_without_native_routes_or_metadata() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		fn text_rect(shape: &egui::Shape, label: &str) -> Option<egui::Rect> {
 			match shape {
 				egui::Shape::Text(text) if text.galley.text().trim() == label => {
@@ -7774,27 +7772,27 @@ mod composer_tests {
 		}
 		for (raw, external, confirms) in [
 			(
-				"https://discord.com/not/../channels/100/11/25?jump=1#message",
-				"https://discord.com/channels/100/11/25?jump=1#message",
+				"https://chat.example.com/not/../channels/100/11/25?jump=1#message",
+				"https://chat.example.com/channels/100/11/25?jump=1#message",
 				false,
 			),
 			(
-				"https://discord.com/not/%2e%2e/channels/100/11/25?jump=1#message",
-				"https://discord.com/channels/100/11/25?jump=1#message",
+				"https://chat.example.com/not/%2e%2e/channels/100/11/25?jump=1#message",
+				"https://chat.example.com/channels/100/11/25?jump=1#message",
 				false,
 			),
 			(
-				"https://discord%2Ecom/channels/100/11/25",
-				"https://discord.com/channels/100/11/25",
+				"https://chat%2Eexample.com/channels/100/11/25",
+				"https://chat.example.com/channels/100/11/25",
 				false,
 			),
 			(
-				"HTTPS://DISCORD.COM.EVIL.EXAMPLE:443/not/../channels/100/11/25?jump=1#message",
-				"https://discord.com.evil.example/channels/100/11/25?jump=1#message",
+				"HTTPS://CHAT.EXAMPLE.COM.EVIL.EXAMPLE:443/not/../channels/100/11/25?jump=1#message",
+				"https://chat.example.com.evil.example/channels/100/11/25?jump=1#message",
 				true,
 			),
 		] {
-			assert!(markdown::discord_chat_link(raw).is_none());
+			assert!(markdown::chat_link(raw).is_none());
 			assert_eq!(markdown::external_url(raw).as_deref(), Some(external));
 			for source in [raw.to_owned(), format!("<{raw}>")] {
 				let ctx = egui::Context::default();

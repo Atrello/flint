@@ -60,11 +60,11 @@ impl VerificationUi {
 					.and_then(|preview| preview.embed.title.as_deref())
 			})
 			.flatten();
-		// Where the same step can be finished in Discord itself: the invite, or the web app.
+		// Where the same step can be finished on the server itself: the invite, or the web app.
 		let official = if invite {
-			format!("https://discord.com/invite/{}", state.invite_join.code)
+			model::endpoints::absolute_url(&format!("/invite/{}", state.invite_join.code))
 		} else {
-			"https://discord.com/channels/@me".to_owned()
+			model::endpoints::absolute_url("/channels/@me")
 		};
 		let mut cancel = false;
 		let response = dialog::Dialog::new(

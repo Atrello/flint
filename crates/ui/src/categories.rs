@@ -1012,7 +1012,7 @@ impl MessagingUi {
 							let enabled = visible && (channel.supports_text() || forum);
 							// Kinds Flint cannot render keep Discord's own destination.
 							let external = (!channel.supports_text() && !forum)
-								.then(|| crate::markdown::discord_url(channel, None))
+								.then(|| crate::markdown::channel_url(channel, None))
 								.flatten()
 								.filter(|_| visible);
 							let (rect, response) = ui
@@ -2200,6 +2200,7 @@ mod tests {
 	}
 	#[test]
 	fn unsupported_channel_opens_confirmation_by_keyboard_without_selecting() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let mut state = State {
 			user: Some(model::User {
 				id: Id(2),
@@ -2264,11 +2265,11 @@ mod tests {
 			}
 			assert_eq!(
 				view.timeline.browser_opening.as_deref(),
-				permitted.then_some("https://discord.com/channels/100/9")
+				permitted.then_some("https://chat.example.com/channels/100/9")
 			);
 			assert!(state.selected.is_none());
 		}
-		view.timeline.browser_opening = Some("https://discord.com/channels/100/9".into());
+		view.timeline.browser_opening = Some("https://chat.example.com/channels/100/9".into());
 		view.clear();
 		assert!(view.timeline.browser_opening.is_none());
 	}

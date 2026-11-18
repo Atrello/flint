@@ -209,7 +209,7 @@ impl MessagingUi {
 			ui.add_space(8.0);
 			ui.hyperlink_to(
 				language.text("friends-explore-servers"),
-				"https://discord.com/servers",
+				model::endpoints::absolute_url("/"),
 			);
 		});
 	}

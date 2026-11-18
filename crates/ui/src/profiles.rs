@@ -5600,7 +5600,7 @@ mod tests {
 		let mut avatars = Avatars::default();
 		let mut session = ProfileSession::default();
 		let mut formatted = FormatCache::default();
-		let url = "https://discord.com/channels/10/20/100";
+		let url = "https://chat.example.com/channels/10/20/100";
 		let mut frame = |events| {
 			let mut opening = None;
 			let output = ctx.run_ui(input(vec2(500.0, 850.0), events), |ui| {

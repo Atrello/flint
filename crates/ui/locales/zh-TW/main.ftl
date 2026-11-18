@@ -3552,11 +3552,7 @@ settings-chat-settings-show-hidden-channels = 顯示隱藏的頻道
 # Context: chat_settings
 settings-chat-settings-emoji = 表情符號
 
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis = 建議需要 Nitro 的表情符號
 
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis-description = 即使沒有 Nitro，也在建議與選擇器中提供動態及其他伺服器的表情符號。關閉時會從建議中隱藏，並在選擇器中顯示為鎖定。
 
 # Context: close_control
 settings-close-control-close-settings-esc = 關閉設定（Esc）

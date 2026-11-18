@@ -52,7 +52,6 @@ impl Settings {
 			update_nightly: ui.updates.nightly,
 			notification_options: ui.notification_options,
 			show_hidden_channels: ui.show_hidden_channels,
-			hide_nitro_emojis: ui.hide_nitro_emojis,
 			convert_emoticons: ui.convert_emoticons,
 			hide_blocked_messages: ui.hide_blocked_messages,
 			hide_ignored_messages: ui.hide_ignored_messages,
@@ -109,7 +108,6 @@ impl Settings {
 		ui.updates.nightly = value.update_nightly;
 		ui.notification_options = value.notification_options;
 		ui.show_hidden_channels = value.show_hidden_channels;
-		ui.hide_nitro_emojis = value.hide_nitro_emojis;
 		ui.convert_emoticons = value.convert_emoticons;
 		ui.hide_blocked_messages = value.hide_blocked_messages;
 		ui.hide_ignored_messages = value.hide_ignored_messages;

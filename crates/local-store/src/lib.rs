@@ -44,8 +44,6 @@ pub struct AppPreferences {
 	pub update_nightly: bool,
 	pub notification_options: model::notification_preferences::Device,
 	pub show_hidden_channels: bool,
-	/// Keep custom emoji that need Nitro out of suggestions and lock them in the picker.
-	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
 	/// Hide visible rows authored by blocked users without changing account relationships.
@@ -121,7 +119,6 @@ impl Default for AppPreferences {
 			update_nightly: true,
 			notification_options: Default::default(),
 			show_hidden_channels: false,
-			hide_nitro_emojis: false,
 			convert_emoticons: false,
 			hide_blocked_messages: false,
 			hide_ignored_messages: false,

@@ -197,10 +197,10 @@ impl ChannelMenu {
 				ui.close();
 			}
 			if row(ui, "channel-menu-context-copy-link", true, false).clicked() {
-				ui.ctx().copy_text(format!(
-					"https://discord.com/channels/{guild}/{}",
+				ui.ctx().copy_text(model::endpoints::absolute_url(&format!(
+					"/channels/{guild}/{}",
 					channel.id
-				));
+				)));
 				ui.close();
 			}
 			ui.separator();

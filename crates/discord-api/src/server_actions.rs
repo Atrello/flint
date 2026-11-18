@@ -17,7 +17,7 @@ impl DiscordApi {
 			return Err(Failure::Protocol);
 		}
 		let channel = self.open_dm(user, None, None).await?;
-		let content = format!("https://discord.gg/{code}");
+		let content = model::endpoints::absolute_url(&format!("/invite/{code}"));
 		let message = self
 			.send_message(channel.id, &content, nonce, None, None, None)
 			.await
@@ -249,6 +249,7 @@ mod tests {
 	};
 	#[tokio::test]
 	async fn friend_invites_scope_dm_and_confirm_message_without_retry() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let mut api = DiscordApi::new(Arc::new(
 			SessionSecret::from_owner_input("SYNTHETIC_INVITE_TOKEN".into()).unwrap(),
@@ -293,7 +294,10 @@ mod tests {
 								assert_eq!(body, serde_json::json!({"recipient_id":"8"}));
 							} else {
 								assert!(headers.starts_with("POST /channels/10/messages HTTP/1.1"));
-								assert_eq!(body["content"], "https://discord.gg/safe_link");
+								assert_eq!(
+									body["content"],
+									"https://chat.example.com/invite/safe_link"
+								);
 								assert_eq!(body["nonce"], "invite-nonce");
 								assert_eq!(
 									body["allowed_mentions"]["parse"],
@@ -303,7 +307,7 @@ mod tests {
 							break;
 						}
 					}
-					let body=if step==0 {serde_json::json!({"id":"10","type":1,"recipients":[{"id":recipient,"username":"Friend"}]})} else {serde_json::json!({"id":"100","channel_id":"10","author":{"id":"1","username":"Owner"},"content":"https://discord.gg/safe_link","nonce":nonce,"type":0})}.to_string();
+					let body=if step==0 {serde_json::json!({"id":"10","type":1,"recipients":[{"id":recipient,"username":"Friend"}]})} else {serde_json::json!({"id":"100","channel_id":"10","author":{"id":"1","username":"Owner"},"content":"https://chat.example.com/invite/safe_link","nonce":nonce,"type":0})}.to_string();
 					let status = if step == 0 { 200 } else { status };
 					socket
 						.write_all(

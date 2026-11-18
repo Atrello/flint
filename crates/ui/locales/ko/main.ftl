@@ -3553,10 +3553,6 @@ settings-chat-settings-show-channels-you-cannot-currently-access = 현재 접근
 settings-chat-settings-show-hidden-channels = 숨겨진 채널 표시
 # Context: chat_settings
 settings-chat-settings-emoji = 이모지
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis = Nitro가 필요한 이모지 추천
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis-description = Nitro가 없어도 : 추천과 선택기에 움직이는 이모지 및 다른 서버의 이모지를 표시합니다. 끄면 추천에서 숨기고 선택기에 잠긴 상태로 표시합니다.
 # Context: close_control
 settings-close-control-close-settings-esc = 설정 닫기(Esc)
 # Context: colour_preset_settings

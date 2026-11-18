@@ -194,8 +194,10 @@ impl PostMenu {
 				}
 				if row(ui, "post-menu-context-copy-link", true, false).clicked() {
 					if let Some(guild) = post.guild {
-						ui.ctx()
-							.copy_text(format!("https://discord.com/channels/{guild}/{}", post.id));
+						ui.ctx().copy_text(model::endpoints::absolute_url(&format!(
+							"/channels/{guild}/{}",
+							post.id
+						)));
 					}
 					ui.close();
 				}

@@ -3594,10 +3594,6 @@ settings-chat-settings-show-channels-you-cannot-currently-access = Show channels
 settings-chat-settings-show-hidden-channels = Show hidden channels
 # Context: chat_settings
 settings-chat-settings-emoji = Emoji
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis = Suggest emojis that need Nitro
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis-description = Offer animated and other servers' emojis in : suggestions and the picker without Nitro. When off, they are hidden from suggestions and locked in the picker.
 # Context: close_control
 settings-close-control-close-settings-esc = Close settings (Esc)
 # Context: colour_preset_settings

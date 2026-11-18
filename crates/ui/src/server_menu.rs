@@ -639,7 +639,7 @@ mod tests {
 		}
 		if menu.invite.copied && !copied_before {
 			assert!(output.platform_output.commands.iter().any(|command| {
-				matches!(command, egui::OutputCommand::CopyText(link) if link == "https://discord.gg/synthetic-invite")
+				matches!(command, egui::OutputCommand::CopyText(link) if link == "https://chat.example.com/invite/synthetic-invite")
 			}));
 		}
 		output.drop_without_applying_deltas();
@@ -695,6 +695,8 @@ mod tests {
 	}
 	#[test]
 	fn server_menu_requires_explicit_invite_and_leave_confirmation() {
+		let _ = model::endpoints::configure("https://chat.example.com");
+		let _ = model::endpoints::configure("https://chat.example.com");
 		for (light, width) in [(false, 320.0), (true, 320.0), (false, 960.0), (true, 960.0)] {
 			for action in ["Create invite", "Leave server"] {
 				let ctx = egui::Context::default();
