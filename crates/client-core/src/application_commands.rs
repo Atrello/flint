@@ -127,14 +127,9 @@ impl State {
 						self.permission(channel, model::permissions::USE_APPLICATION_COMMANDS)
 							== Some(true)
 					} else {
+						// Any 1:1 DM: the server lists bot commands only where a bot is present,
+						// and user-installed apps everywhere the user is.
 						c.kind == 1
-							&& c.recipients.iter().any(|u| {
-								matches!(
-									u.kind,
-									model::AccountKind::Bot
-										| model::AccountKind::App | model::AccountKind::VerifiedBot
-								)
-							})
 					}
 			})
 	}

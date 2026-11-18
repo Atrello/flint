@@ -48,6 +48,21 @@ impl Request {
 						&& values.iter().all(|v| v.len() <= 400)
 						&& (*component_type != 2 || values.is_empty())
 				}
+				Data::Autocomplete {
+					invocation,
+					focused,
+				} => {
+					self.message_id.is_none()
+						&& self.message_flags == 0
+						&& self.application_id == invocation.command.application_id
+						&& invocation
+							.command
+							.guild_id
+							.is_none_or(|guild| Some(guild) == self.guild_id)
+						&& !focused.is_empty()
+						&& focused.chars().count() <= 100
+						&& contains_argument(&invocation.options, focused)
+				}
 				Data::Modal {
 					id,
 					custom_id,
@@ -71,11 +86,33 @@ pub enum Data {
 		component_type: u8,
 		values: Vec<String>,
 	},
+	/// Choices for the option named `focused`, whose typed text is in the invocation.
+	Autocomplete {
+		invocation: Box<model::application_commands::Invocation>,
+		focused: String,
+	},
 	Modal {
 		id: Id,
 		custom_id: String,
 		components: Vec<Component>,
 	},
+}
+fn contains_argument(options: &[model::application_commands::Argument], name: &str) -> bool {
+	options
+		.iter()
+		.any(|o| o.name == name || contains_argument(&o.options, name))
+}
+/// Choices for an autocomplete request in flight or answered.
+#[derive(Clone)]
+pub struct Autocomplete {
+	pub nonce: String,
+	pub channel: Id,
+	pub command: Id,
+	pub option: String,
+	pub choices: Vec<model::application_commands::Choice>,
+	pub loading: bool,
+	pub started: Instant,
+	pub error: Option<&'static str>,
 }
 #[derive(Clone)]
 pub struct Modal {
@@ -102,6 +139,11 @@ pub enum Event {
 		modal: Box<Modal>,
 	},
 	Ephemeral(Box<Message>),
+	/// Answer to an autocomplete request, with the choices for the focused option.
+	Autocomplete {
+		nonce: String,
+		choices: Vec<model::application_commands::Choice>,
+	},
 }
 impl Event {
 	pub fn bytes(&self) -> usize {
@@ -117,6 +159,13 @@ impl Event {
 					+ model::component_bytes(&modal.components)
 			}
 			Self::Ephemeral(m) => m.bytes(),
+			Self::Autocomplete { nonce, choices } => {
+				nonce.capacity()
+					+ choices
+						.iter()
+						.map(|c| c.name.capacity() + 64)
+						.sum::<usize>()
+			}
 		}
 	}
 }
@@ -138,6 +187,7 @@ pub struct Interactions {
 	modal_channel: Option<Id>,
 	// A success acknowledgement can precede the modal dispatch.
 	completed: Option<Pending>,
+	pub autocomplete: Option<Autocomplete>,
 }
 impl Interactions {
 	pub fn busy(&self) -> bool {
@@ -149,6 +199,7 @@ impl Interactions {
 		self.modal = None;
 		self.modal_channel = None;
 		self.ephemeral.clear();
+		self.autocomplete = None;
 		self.error = None;
 	}
 }
@@ -275,6 +326,67 @@ impl State {
 			values,
 		};
 		self.begin_interaction(application, Some(message), flags, data)
+	}
+	/// Ask the application for choices for the focused option. Typing doesn't wait on a previous
+	/// answer, so this is not gated on `busy`; only the newest request's answer is kept.
+	pub fn prepare_application_autocomplete(
+		&mut self,
+		command_id: Id,
+		path: &[String],
+		values: &[(String, String)],
+		focused: &str,
+	) -> Result<Command, &'static str> {
+		let channel = self.selected.ok_or("Choose a conversation first")?;
+		if !self.can_request_application_commands(channel) || !self.interactions_allowed() {
+			return Err("Application commands are unavailable in this conversation");
+		}
+		let catalog = &self.application_commands;
+		if !self.application_commands_cover(channel) || catalog.loading || catalog.error.is_some() {
+			return Err("Refresh the application command list first");
+		}
+		let command = catalog
+			.commands
+			.iter()
+			.find(|c| c.id == command_id)
+			.ok_or("This command is no longer available")?;
+		if !self.can_use_application_command(channel, command) {
+			return Err("You don't have permission to use this command here");
+		}
+		let invocation = command.autocomplete_invocation(path, values, focused)?;
+		let application_id = command.application_id;
+		let guild_id = self.channel(channel).and_then(|c| c.guild);
+		self.interactions.sequence = self.interactions.sequence.wrapping_add(1);
+		let request = self.interactions.sequence;
+		let nonce = crate::fingerprint::nonce(
+			SystemTime::now()
+				.duration_since(UNIX_EPOCH)
+				.unwrap_or_default()
+				.as_millis(),
+			request,
+		);
+		self.interactions.autocomplete = Some(Autocomplete {
+			nonce: nonce.clone(),
+			channel,
+			command: command_id,
+			option: focused.to_owned(),
+			choices: Vec::new(),
+			loading: true,
+			started: Instant::now(),
+			error: None,
+		});
+		Ok(Command::Interaction(Request {
+			request,
+			nonce,
+			application_id,
+			channel_id: channel,
+			guild_id,
+			message_id: None,
+			message_flags: 0,
+			data: Data::Autocomplete {
+				invocation: Box::new(invocation),
+				focused: focused.to_owned(),
+			},
+		}))
 	}
 	pub(crate) fn begin_interaction(
 		&mut self,
@@ -442,6 +554,16 @@ impl State {
 					self.interactions.error = None;
 				}
 			}
+			Event::Autocomplete { nonce, choices } => {
+				if let Some(a) = self.interactions.autocomplete.as_mut()
+					&& a.nonce == nonce
+					&& a.loading
+				{
+					a.choices = choices;
+					a.loading = false;
+					a.error = None;
+				}
+			}
 			Event::Failed { nonce } => self.interaction_failed(
 				&nonce,
 				"The application could not complete this interaction",
@@ -470,6 +592,12 @@ impl State {
 		Ok(())
 	}
 	fn interaction_failed(&mut self, nonce: &str, error: &'static str) {
+		if let Some(a) = self.interactions.autocomplete.as_mut()
+			&& a.nonce == nonce
+		{
+			a.loading = false;
+			a.error = Some(error);
+		}
 		if self
 			.interactions
 			.pending

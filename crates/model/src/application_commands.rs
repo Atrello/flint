@@ -524,6 +524,80 @@ impl Command {
 	}
 }
 
+impl Command {
+	/// Arguments for an autocomplete request. The focused option carries the text being typed, and
+	/// other options may still be missing or incomplete, so the usual required checks don't apply.
+	pub fn autocomplete_invocation(
+		&self,
+		path: &[String],
+		values: &[(String, String)],
+		focused: &str,
+	) -> Result<Invocation, &'static str> {
+		if !self.valid() || values.len() > 25 {
+			return Err("Invalid command schema or too many values");
+		}
+		let schema = self.options_at(path)?;
+		let focused_option = schema
+			.iter()
+			.find(|o| o.name == focused)
+			.ok_or("This option is no longer available")?;
+		if !focused_option.autocomplete || focused_option.kind != 3 {
+			return Err("This option does not autocomplete");
+		}
+		let mut seen = BTreeSet::new();
+		for (name, _) in values {
+			if !seen.insert(name) || !schema.iter().any(|o| o.name == *name) {
+				return Err("Unknown or repeated command option");
+			}
+		}
+		let mut options = Vec::new();
+		for option in schema {
+			if option.kind == 11 {
+				continue;
+			}
+			let typed = values
+				.iter()
+				.find(|(name, _)| *name == option.name)
+				.map(|(_, value)| value.as_str());
+			if option.name == focused {
+				options.push(Argument {
+					kind: option.kind,
+					name: option.name.clone(),
+					value: Some(Value::String(typed.unwrap_or_default().to_owned())),
+					options: Vec::new(),
+				});
+				continue;
+			}
+			let Some(text) = typed.filter(|value| !value.is_empty()) else {
+				continue;
+			};
+			options.push(Argument {
+				kind: option.kind,
+				name: option.name.clone(),
+				value: Some(option.parse(text)?),
+				options: Vec::new(),
+			});
+		}
+		for depth in (0..path.len()).rev() {
+			let mut branch = &self.options;
+			for part in &path[..depth] {
+				branch = &branch.iter().find(|o| o.name == *part).unwrap().options;
+			}
+			let selected = branch.iter().find(|o| o.name == path[depth]).unwrap();
+			options = vec![Argument {
+				kind: selected.kind,
+				name: selected.name.clone(),
+				value: None,
+				options,
+			}];
+		}
+		Ok(Invocation {
+			command: self.clone(),
+			options,
+		})
+	}
+}
+
 fn arguments_valid(schema: &[CommandOption], values: &[Argument]) -> bool {
 	if values.len() > 25 || schema.iter().any(|o| o.kind <= 2) && values.len() != 1 {
 		return false;
