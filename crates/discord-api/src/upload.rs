@@ -749,13 +749,20 @@ impl DiscordApi {
 		if value.len() > 4096 {
 			return Err(invalid);
 		}
-		let url = Url::parse(value).map_err(|_| invalid)?;
+		// Compiled out of shipped builds: tests run against one fixed stand-in server.
+		#[cfg(test)]
+		let _ = model::endpoints::configure("https://chat.example.com");
+		// Steel hands out upload paths relative to its origin, or absolute ones on that origin.
+		let absolute = model::endpoints::absolute_url(value);
+		let url = Url::parse(&absolute).map_err(|_| invalid)?;
 		if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
 			return Err(invalid);
 		}
-		let allowed = url.scheme() == "https"
-			&& url.host_str() == Some("discord-attachments-uploads-prd.storage.googleapis.com")
-			&& url.port_or_known_default() == Some(443);
+		let server = Url::parse(&model::endpoints::get().origin).map_err(|_| invalid)?;
+		let allowed = url.scheme() == server.scheme()
+			&& url.host_str() == server.host_str()
+			&& url.port_or_known_default() == server.port_or_known_default()
+			&& url.path().starts_with("/cdn/upload/");
 		#[cfg(test)]
 		let allowed = allowed
 			|| (url.scheme() == "http"
@@ -1012,19 +1019,22 @@ mod tests {
 			assert!(Source::inspect(empty.0.clone()).await.is_err());
 			drop(large);
 			let api = api();
-			let host = "discord-attachments-uploads-prd.storage.googleapis.com";
+			model::endpoints::configure("https://chat.example.com").unwrap();
+			let host = "chat.example.com";
 			assert!(
-				api.upload_url(&format!("https://{host}/opaque?upload_id=synthetic"))
+				api.upload_url(&format!("https://{host}/cdn/upload/opaque"))
 					.is_ok()
 			);
+			assert!(api.upload_url("/cdn/upload/opaque").is_ok());
 			for url in [
-				format!("http://{host}/x"),
-				format!("https://{host}.evil.test/x"),
-				format!("https://user@{host}/x"),
-				format!("https://{host}:444/x"),
-				format!("https://{host}/x#fragment"),
+				format!("http://{host}/cdn/upload/x"),
+				format!("https://{host}.evil.test/cdn/upload/x"),
+				format!("https://user@{host}/cdn/upload/x"),
+				format!("https://{host}:444/cdn/upload/x"),
+				format!("https://{host}/cdn/upload/x#fragment"),
+				format!("https://{host}/cdn/attachments/x"),
 				"http://127.0.0.1:1234/x".into(),
-				format!("https://{host}/{}", "x".repeat(4096)),
+				format!("https://{host}/cdn/upload/{}", "x".repeat(4096)),
 			] {
 				assert!(api.upload_url(&url).is_err());
 			}

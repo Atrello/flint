@@ -86,6 +86,17 @@ pub fn get() -> &'static Endpoints {
 		.expect("server address is configured before any network use")
 }
 
+/// Makes a server-relative path such as `/cdn/attachments/…` absolute against the configured
+/// origin. Absolute URLs pass through unchanged, and nothing here requires a configured server.
+pub fn absolute_url(value: &str) -> String {
+	match ENDPOINTS.get() {
+		Some(endpoints) if value.starts_with('/') && !value.starts_with("//") => {
+			format!("{}{value}", endpoints.origin)
+		}
+		_ => value.to_owned(),
+	}
+}
+
 /// Whether `host` is the configured server's host (case-insensitive).
 pub fn is_server_host(host: &str) -> bool {
 	ENDPOINTS
@@ -112,6 +123,17 @@ mod tests {
 		assert_eq!(local.api_origin, "http://localhost:8080/api/v10");
 		assert_eq!(local.gateway_url, "ws://localhost:8080/gateway");
 		assert_eq!(parse("http://chat.example.com"), Err(EndpointError::Scheme));
+	}
+
+	#[test]
+	fn resolves_only_server_relative_paths() {
+		configure("https://chat.example.com").unwrap();
+		assert_eq!(
+			absolute_url("/cdn/attachments/1/2/a.png"),
+			"https://chat.example.com/cdn/attachments/1/2/a.png"
+		);
+		assert_eq!(absolute_url("https://other.example/a.png"), "https://other.example/a.png");
+		assert_eq!(absolute_url("//other.example/a.png"), "//other.example/a.png");
 	}
 
 	#[test]

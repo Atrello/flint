@@ -50,7 +50,9 @@ pub(crate) fn placeholder(value: Option<String>, version: Option<u32>) -> Vec<u8
 		.map_or_else(Vec::new, |len| bytes[..len].to_vec())
 }
 fn url(value: Option<String>) -> Option<String> {
-	value.filter(|value| value.len() <= 2048 && !value.chars().any(char::is_control))
+	value
+		.map(|value| model::endpoints::absolute_url(&value))
+		.filter(|value| value.len() <= 2048 && !value.chars().any(char::is_control))
 }
 impl AttachmentDto {
 	fn into_model(self) -> Attachment {

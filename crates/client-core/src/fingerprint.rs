@@ -30,7 +30,6 @@ fn desktop_version() -> &'static str {
 /// Retained paired engine baseline: the pinned wreq-util has no Chromium 152 profile.
 /// The downloaded Linux core declares Electron 44.9.3, so this is not a current runtime claim.
 const ELECTRON_VERSION: &str = "42.7.1";
-const DESKTOP_CHROMIUM_VERSION: &str = "148.0.7778.280";
 const WEBKIT: bool = !cfg!(windows);
 
 /// Discord's spelling of the host operating system.

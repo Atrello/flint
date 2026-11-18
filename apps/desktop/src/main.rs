@@ -1033,6 +1033,8 @@ struct Desktop {
 	extensions: extension_bridge::Bridge,
 	extension_close_pending: bool,
 	login: Option<platform::LoginView>,
+	sign_in_form: sign_in::SignInForm,
+	native_sign_in: Option<std::sync::mpsc::Receiver<Result<client_core::auth::SessionSecret, client_core::auth::Failure>>>,
 	captcha: captcha::Captcha,
 	connection: Option<connection::Connection>,
 	state: State,
@@ -2569,6 +2571,8 @@ impl Desktop {
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
 			login: None,
+			sign_in_form: sign_in::SignInForm::default(),
+			native_sign_in: None,
 			captcha: captcha::Captcha::default(),
 			connection: None,
 			state,
@@ -5747,6 +5751,17 @@ impl Desktop {
 					credentials::Request::NONE,
 					credentials::Operation::Forget,
 				));
+			}
+		}
+		let polled = self.native_sign_in.as_ref().and_then(|receive| receive.try_recv().ok());
+		if let Some(result) = polled {
+			self.native_sign_in = None;
+			match result {
+				Ok(secret) => self.connect(secret, true, ctx),
+				Err(error) => {
+					self.state.auth = client_core::auth::AuthState::Failed;
+					self.state.status = error.label();
+				}
 			}
 		}
 		if let Some(login) = &self.login {

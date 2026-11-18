@@ -7,6 +7,7 @@ mod badges;
 mod channel_actions;
 mod collectibles;
 pub mod detectable;
+pub mod auth;
 pub mod device;
 pub mod external_assets;
 mod forum;
