@@ -4055,6 +4055,9 @@ impl MessagingUi {
                                 ui.add_enabled_ui(keyboard_enabled, |ui| {
                                     self.slash_commands.composer(ui, state, channel, &self.keybinds);
                                 });
+                                if let Some(command) = self.slash_commands.take_autocomplete(state) {
+                                    commands.push(command);
+                                }
                                 if self.slash_commands.active.is_none() {
                                     ctx.memory_mut(|memory| memory.request_focus(composer_id));
                                 }
