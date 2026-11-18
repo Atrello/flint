@@ -1,4 +1,5 @@
 //! Single UI-thread state owner. Adapters deliver generation-tagged typed events.
+mod app_installs;
 pub mod application_commands;
 pub mod archives;
 pub mod auth;
@@ -225,6 +226,16 @@ pub enum Command {
 	GifFavorites {
 		request: u64,
 		change: Option<(model::Gif, bool)>,
+	},
+	/// Lists the bot users whose applications this account has installed (Steel).
+	AppInstalls {
+		request: u64,
+	},
+	/// Installs or removes the application behind a bot user (Steel).
+	AppInstall {
+		request: u64,
+		bot: Id,
+		install: bool,
 	},
 	/// Saves batched emoji uses to the account's frecency settings (unofficial).
 	EmojiFrecency {
@@ -584,6 +595,16 @@ pub enum Event {
 		request: u64,
 		result: Result<model::GifPage, auth::Failure>,
 	},
+	AppInstalls {
+		request: u64,
+		result: Result<Vec<Id>, auth::Failure>,
+	},
+	AppInstall {
+		request: u64,
+		bot: Id,
+		install: bool,
+		result: Result<(), auth::Failure>,
+	},
 	GifFavorites {
 		request: u64,
 		result: Result<Vec<model::Gif>, auth::Failure>,
@@ -807,6 +828,7 @@ pub struct State {
 	pub search: Option<search::SearchView>,
 	pub search_request: u64,
 	pub gifs: gifs::Gifs,
+	pub app_installs: app_installs::AppInstalls,
 	pub emoji_frecency: emoji_frecency::EmojiFrecency,
 	/// A pin changed in this channel; the pins view should be reloaded once.
 	pub pins_changed: Option<Id>,
@@ -1055,6 +1077,7 @@ impl Default for State {
 			search: None,
 			search_request: 0,
 			gifs: gifs::Gifs::default(),
+			app_installs: app_installs::AppInstalls::default(),
 			emoji_frecency: emoji_frecency::EmojiFrecency::default(),
 			pins_changed: None,
 			message_actions: Default::default(),
@@ -3080,6 +3103,41 @@ impl State {
 			}
 			Event::Gifs { request, result } => {
 				self.apply_gifs(request, result);
+				Ok(())
+			}
+			Event::AppInstalls { result, .. } => {
+				self.app_installs.loading = false;
+				match result {
+					Ok(ids) => {
+						self.app_installs.installed = Some(ids.into_iter().collect());
+						self.app_installs.error = false;
+					}
+					Err(_) => self.app_installs.error = true,
+				}
+				Ok(())
+			}
+			Event::AppInstall {
+				bot,
+				install,
+				result,
+				..
+			} => {
+				self.app_installs.pending.remove(&bot);
+				match result {
+					Ok(()) => {
+						let installed = self
+							.app_installs
+							.installed
+							.get_or_insert_with(Default::default);
+						if install {
+							installed.insert(bot);
+						} else {
+							installed.remove(&bot);
+						}
+						self.app_installs.error = false;
+					}
+					Err(_) => self.app_installs.error = true,
+				}
 				Ok(())
 			}
 			Event::GifFavorites {

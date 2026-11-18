@@ -3314,6 +3314,9 @@ impl MessagingUi {
 		ctx: &egui::Context,
 		commands: &mut Vec<Command>,
 	) {
+		if let Some(command) = state.request_app_installs() {
+			commands.push(command);
+		}
 		let had_edit = self.editing.is_some();
 		self.reconcile_edit(state);
 		let closed_here = self.edit_closed_channel.take() == Some(channel);
@@ -4736,6 +4739,11 @@ impl MessagingUi {
 					floor: attachments::Floor::Fit,
 				});
 				self.profile.close();
+			}
+			profiles::Action::SetAppInstalled { bot, install } => {
+				if let Some(command) = state.set_app_installed(bot, install) {
+					commands.push(command);
+				}
 			}
 			profiles::Action::AddFriend(id) => {
 				if let Some(command) = state.add_profile_friend(id) {

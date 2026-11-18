@@ -2,6 +2,7 @@
 // bounded Discord device state in `device`.
 mod activity_sharing;
 mod admission;
+mod app_installs;
 mod archives;
 pub mod auth;
 mod badges;
@@ -1448,6 +1449,20 @@ impl DiscordApi {
 				result: self.gifs(query.as_deref()).await,
 			},
 			Command::CancelGifs => Event::Failure(Failure::Protocol),
+			Command::AppInstalls { request } => Event::AppInstalls {
+				request,
+				result: self.installed_applications().await,
+			},
+			Command::AppInstall {
+				request,
+				bot,
+				install,
+			} => Event::AppInstall {
+				request,
+				bot,
+				install,
+				result: self.set_application_installed(bot, install).await,
+			},
 			Command::GifFavorites { request, change } => {
 				let (result, frequent_emoji) = match self.gif_favorites(change).await {
 					Ok((gifs, emoji)) => (Ok(gifs), emoji),
