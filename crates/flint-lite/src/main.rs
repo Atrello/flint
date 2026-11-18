@@ -9,10 +9,12 @@ mod gateway;
 mod model;
 mod net;
 mod p2p;
+mod voice;
 
 use std::path::PathBuf;
 
 use model::Cmd;
+use voice::AudioSource;
 
 const DEFAULT_SERVER: &str = "http://127.0.0.1:8080";
 
@@ -20,6 +22,7 @@ struct Args {
 	server: String,
 	home: PathBuf,
 	capture: capture::Source,
+	audio: AudioSource,
 }
 
 fn parse_args() -> Args {
@@ -29,6 +32,7 @@ fn parse_args() -> Args {
 		.unwrap_or_else(|| PathBuf::from("."))
 		.join("flint-lite");
 	let mut capture = capture::Source::Monitor;
+	let mut audio = AudioSource::Device;
 	while let Some(arg) = args.next() {
 		match arg.as_str() {
 			"--server" => server = args.next().unwrap_or_else(|| usage("--server needs a URL")),
@@ -39,7 +43,10 @@ fn parse_args() -> Args {
 				)
 			}
 			// Synthetic frames instead of the screen, for machines without a display.
-			"--test-pattern" => capture = capture::Source::TestPattern,
+			"--test-pattern" => {
+				capture = capture::Source::TestPattern;
+				audio = AudioSource::Silence;
+			}
 			"--help" | "-h" => usage(""),
 			other => usage(&format!("unknown option {other}")),
 		}
@@ -48,6 +55,7 @@ fn parse_args() -> Args {
 		server,
 		home,
 		capture,
+		audio,
 	}
 }
 
@@ -71,11 +79,12 @@ fn main() -> eframe::Result {
 	let server = args.server.clone();
 	let home = args.home.clone();
 	let source = args.capture;
+	let audio = args.audio;
 	eframe::run_native(
 		"Flint Lite",
 		options,
 		Box::new(move |cc| {
-			let (cmd, ev) = net::spawn(cc.egui_ctx.clone(), source, home.clone());
+			let (cmd, ev) = net::spawn(cc.egui_ctx.clone(), source, audio, home.clone());
 			if let Some(saved) = net::load_session(&home) {
 				let _ = cmd.send(Cmd::Resume {
 					server: saved.server,

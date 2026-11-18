@@ -2548,11 +2548,13 @@ name = "flint-lite"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "cpal",
  "dirs",
  "eframe",
  "egui",
  "futures-util",
  "image",
+ "opus2",
  "reqwest",
  "rustls",
  "serde",

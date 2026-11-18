@@ -6,7 +6,7 @@ friends, direct messages, group messages, and peer-to-peer screen share.
 - Chat, friends, groups and offline delivery go through Steel.
 - Screen share is peer to peer over WebRTC. Steel only relays the offer, answer and ICE
   candidates (`CALL_SIGNAL`). Frames never touch the server.
-- Voice and video calls are not built yet.
+- Voice calls: Opus audio over WebRTC, peer to peer, with the microphone sent to each connected peer during a call. Video from a camera is not built yet.
 
 ## Run
 
@@ -27,5 +27,6 @@ so direct connections can fall back to a relay.
 ```sh
 cargo test -p flint-lite                      # unit tests and the WebRTC loopback test
 FLINT_LITE_TEST_SERVER=http://127.0.0.1:8080 \
-  cargo test -p flint-lite -- --ignored       # needs a running steeld: chat, friends, DM and share
+  cargo test -p flint-lite -- --ignored       # needs a running steeld: chat, friends, DM, group and share
+xvfb-run -a cargo test -p flint-lite monitor -- --ignored   # real screen capture, needs X11 or Xvfb
 ```

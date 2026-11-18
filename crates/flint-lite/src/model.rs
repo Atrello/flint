@@ -124,6 +124,8 @@ pub enum Cmd {
 	CreateDm(Vec<String>),
 	ShareScreen(Vec<String>),
 	StopShare,
+	StartCall(Vec<String>),
+	LeaveCall,
 }
 
 /// Events from the network worker to the UI.
@@ -147,6 +149,16 @@ pub enum Ev {
 	Share {
 		outgoing: Vec<String>,
 		incoming: Vec<String>,
+	},
+	/// Whether this client is in a voice call, and with whom it has a connection.
+	Call {
+		in_call: bool,
+		peers: Vec<String>,
+	},
+	/// A remote speaker is being heard. `frames` counts decoded 20 ms frames so far.
+	Voice {
+		from: String,
+		frames: u64,
 	},
 	Frame {
 		from: String,

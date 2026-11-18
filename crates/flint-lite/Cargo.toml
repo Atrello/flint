@@ -20,6 +20,8 @@ xcap = "0.9"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 webrtc = "0.14"
 bytes = "1"
+cpal = { version = "=0.18.2", default-features = false }
+opus2 = { version = "=0.4.0", default-features = false, features = ["backend-libopus", "static", "bundled"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
 
 [lints]

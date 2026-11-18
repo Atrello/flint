@@ -43,6 +43,9 @@ pub struct App {
 	screens: HashMap<String, TextureHandle>,
 	screen_size: HashMap<String, [usize; 2]>,
 	watching: Option<String>,
+	in_call: bool,
+	call_peers: Vec<String>,
+	speaking: HashMap<String, u64>,
 }
 
 impl App {
@@ -75,6 +78,9 @@ impl App {
 			screens: HashMap::new(),
 			screen_size: HashMap::new(),
 			watching: None,
+			in_call: false,
+			call_peers: Vec::new(),
+			speaking: HashMap::new(),
 		}
 	}
 
@@ -127,6 +133,16 @@ impl App {
 					list.push(message);
 					list.sort_by_key(|m| m.id.parse::<u64>().unwrap_or(0));
 				}
+			}
+			Ev::Call { in_call, peers } => {
+				self.in_call = in_call;
+				self.call_peers = peers;
+				if !in_call {
+					self.speaking.clear();
+				}
+			}
+			Ev::Voice { from, frames } => {
+				self.speaking.insert(from, frames);
 			}
 			Ev::Share { outgoing, incoming } => {
 				self.screens.retain(|peer, _| incoming.contains(peer));
@@ -427,6 +443,29 @@ impl App {
 		ui.horizontal(|ui| {
 			ui.heading(title.clone());
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				if self.in_call {
+					if ui
+						.add(egui::Button::new("Leave call").fill(DANGER))
+						.clicked()
+					{
+						self.send(Cmd::LeaveCall);
+					}
+					let heard = self.speaking.len();
+					let text = if heard > 0 {
+						format!("In call, hearing {heard}")
+					} else {
+						"In call".to_string()
+					};
+					ui.label(RichText::new(text).color(GOOD));
+				} else if ui
+					.add_enabled(
+						!peers.is_empty(),
+						egui::Button::new("Start call").fill(ACCENT),
+					)
+					.clicked()
+				{
+					self.send(Cmd::StartCall(peers.clone()));
+				}
 				let sharing = !self.outgoing.is_empty();
 				if sharing {
 					if ui
