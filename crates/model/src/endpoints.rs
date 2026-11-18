@@ -33,7 +33,10 @@ static ENDPOINTS: OnceLock<Endpoints> = OnceLock::new();
 /// Parses a user-entered server address into its endpoints. Pure: does not touch the global.
 pub fn parse(server: &str) -> Result<Endpoints, EndpointError> {
 	let url = url::Url::parse(server.trim()).map_err(|_| EndpointError::Invalid)?;
-	let host = url.host_str().ok_or(EndpointError::Invalid)?.to_ascii_lowercase();
+	let host = url
+		.host_str()
+		.ok_or(EndpointError::Invalid)?
+		.to_ascii_lowercase();
 	let local = host == "localhost" || host == "127.0.0.1" || host == "[::1]";
 	let ws = match url.scheme() {
 		"https" => "wss",
@@ -66,7 +69,11 @@ pub fn parse(server: &str) -> Result<Endpoints, EndpointError> {
 pub fn configure(server: &str) -> Result<&'static Endpoints, EndpointError> {
 	let parsed = parse(server)?;
 	if let Some(current) = ENDPOINTS.get() {
-		return if *current == parsed { Ok(current) } else { Err(EndpointError::AlreadySet) };
+		return if *current == parsed {
+			Ok(current)
+		} else {
+			Err(EndpointError::AlreadySet)
+		};
 	}
 	Ok(ENDPOINTS.get_or_init(|| parsed))
 }
@@ -74,12 +81,16 @@ pub fn configure(server: &str) -> Result<&'static Endpoints, EndpointError> {
 /// The configured endpoints. Panics if no server was configured: that is a startup bug, since
 /// the login screen cannot run without an address.
 pub fn get() -> &'static Endpoints {
-	ENDPOINTS.get().expect("server address is configured before any network use")
+	ENDPOINTS
+		.get()
+		.expect("server address is configured before any network use")
 }
 
 /// Whether `host` is the configured server's host (case-insensitive).
 pub fn is_server_host(host: &str) -> bool {
-	ENDPOINTS.get().is_some_and(|endpoints| endpoints.host.eq_ignore_ascii_case(host))
+	ENDPOINTS
+		.get()
+		.is_some_and(|endpoints| endpoints.host.eq_ignore_ascii_case(host))
 }
 
 #[cfg(test)]
@@ -105,9 +116,18 @@ mod tests {
 
 	#[test]
 	fn refuses_paths_credentials_and_odd_schemes() {
-		assert_eq!(parse("https://chat.example.com/x"), Err(EndpointError::Shape));
-		assert_eq!(parse("https://u:p@chat.example.com"), Err(EndpointError::Shape));
-		assert_eq!(parse("https://chat.example.com?x=1"), Err(EndpointError::Shape));
+		assert_eq!(
+			parse("https://chat.example.com/x"),
+			Err(EndpointError::Shape)
+		);
+		assert_eq!(
+			parse("https://u:p@chat.example.com"),
+			Err(EndpointError::Shape)
+		);
+		assert_eq!(
+			parse("https://chat.example.com?x=1"),
+			Err(EndpointError::Shape)
+		);
 		assert_eq!(parse("ftp://chat.example.com"), Err(EndpointError::Scheme));
 		assert_eq!(parse("not a url"), Err(EndpointError::Invalid));
 	}

@@ -269,7 +269,8 @@ pub fn validated_url(value: &str) -> Result<String, Failure> {
 	#[cfg(test)]
 	let _ = model::endpoints::configure("https://chat.example.com");
 	let mut url = url::Url::parse(value).map_err(|_| Failure::Protocol)?;
-	let expected = url::Url::parse(&model::endpoints::get().gateway_url).map_err(|_| Failure::Protocol)?;
+	let expected =
+		url::Url::parse(&model::endpoints::get().gateway_url).map_err(|_| Failure::Protocol)?;
 	let host_ok = match (url.host_str(), expected.host_str()) {
 		(Some(host), Some(server)) => {
 			host == server

@@ -416,7 +416,10 @@ mod tests {
 			),
 			["root=1; quoted=\"v\""]
 		);
-		for other in ["http://chat.example.com/api", "https://cdn.chat.example.com/api"] {
+		for other in [
+			"http://chat.example.com/api",
+			"https://cdn.chat.example.com/api",
+		] {
 			assert!(sent(&device, other, Version::HTTP_2).is_empty());
 		}
 		// A deletion needs no storable value of its own.

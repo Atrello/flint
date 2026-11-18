@@ -1,7 +1,7 @@
 //! UI-neutral session entities. No filesystem or network dependencies.
 pub mod account;
-pub mod endpoints;
 pub mod application_commands;
+pub mod endpoints;
 mod image_sharing;
 pub mod polls;
 pub mod public_upload;

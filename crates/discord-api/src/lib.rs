@@ -248,7 +248,10 @@ async fn error_code(response: wreq::Response) -> Option<u64> {
 /// imitates a browser or reports the machine's locale, timezone or client build.
 fn request_headers() -> wreq::header::HeaderMap {
 	let mut headers = wreq::header::HeaderMap::new();
-	headers.insert(wreq::header::ACCEPT, HeaderValue::from_static("application/json, */*"));
+	headers.insert(
+		wreq::header::ACCEPT,
+		HeaderValue::from_static("application/json, */*"),
+	);
 	headers
 }
 /// Flint's own identity on the wire. No browser TLS or HTTP/2 emulation is applied.
