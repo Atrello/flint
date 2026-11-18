@@ -485,7 +485,9 @@ mod tests {
 		assert!(labels.iter().any(|(label, _)| label == "Copy link"));
 		assert!(view.has_unsent());
 		state.selected = Some(channel);
-		state.drafts.insert(channel, "a".repeat(MAX_CONTENT));
+		state
+			.drafts
+			.insert(channel, "a".repeat(client_core::MAX_PREMIUM_CONTENT));
 		let _ = frame(&ctx, &mut view, &mut state, vec![]);
 		let labels = frame(&ctx, &mut view, &mut state, vec![]);
 		let add = labels
@@ -517,7 +519,10 @@ mod tests {
 				.any(|(label, _)| label.starts_with("Draft is full"))
 		);
 		assert!(view.has_unsent());
-		assert_eq!(state.drafts[&channel].len(), MAX_CONTENT);
+		assert_eq!(
+			state.drafts[&channel].len(),
+			client_core::MAX_PREMIUM_CONTENT
+		);
 		state.logout();
 		frame(&ctx, &mut view, &mut state, vec![]);
 		assert!(!view.has_unsent());

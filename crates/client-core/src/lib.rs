@@ -63,6 +63,8 @@ use trail::Place;
 
 pub const MAX_DRAFT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CONTENT: usize = 2000;
+/// Premium tier every account is treated as having: Nitro, the highest tier.
+const FULL_ENTITLEMENT: u8 = 2;
 /// Nitro and Nitro Classic accounts may send longer messages.
 pub const MAX_PREMIUM_CONTENT: usize = 4000;
 /// Discord accepts at most ten attachments per message.
@@ -1235,9 +1237,11 @@ impl State {
 				.iter()
 				.any(|p| p.delivery != Delivery::Confirmed)
 	}
-	fn set_premium_type(&mut self, kind: u8) {
-		self.premium_type = kind;
-		self.stickers.external_allowed = matches!(kind, 2 | 3);
+	/// Flint is self-hosted and nothing is paywalled, so every account gets full entitlements
+	/// whatever the service reports. The reported value is ignored for gating.
+	fn set_premium_type(&mut self, _kind: u8) {
+		self.premium_type = FULL_ENTITLEMENT;
+		self.stickers.external_allowed = true;
 	}
 	/// Longest message content Discord accepts from this account.
 	pub fn content_limit(&self) -> usize {

@@ -2133,7 +2133,7 @@ mod tests {
 		let mut draft = "hi :he".to_owned();
 		insert(&mut draft, menu.pick(unicode).unwrap(), true, 4096).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
-		// Opting out of Nitro-only suggestions drops the animated, other-server emoji only.
+		// Every account is entitled, so the old Nitro opt-out keeps animated, other-server emoji.
 		menu.hide_nitro_emojis = true;
 		menu.refresh(&state, Id(1), "x", None, &[]);
 		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
@@ -2141,7 +2141,7 @@ mod tests {
 			menu.hide_nitro_emojis,
 			"the preference survives a closed menu"
 		);
-		assert!(!menu.candidates.iter().any(|c| c.id() == Id(9001)));
+		assert!(menu.candidates.iter().any(|c| c.id() == Id(9001)));
 		assert!(
 			menu.candidates
 				.iter()
