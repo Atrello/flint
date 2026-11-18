@@ -270,9 +270,20 @@ pub fn decode(decoder: &mut opus2::Decoder, packet: &[u8]) -> Result<Vec<f32>, S
 		.collect())
 }
 
+/// Speech tuned for calls: about 24 kbps mono, in-band FEC so a lost packet can be
+/// recovered from the next one, DTX so silence costs almost nothing, and a loss hint
+/// so the encoder spends its FEC budget where packets are actually lost.
 pub fn new_encoder() -> Result<opus2::Encoder, String> {
-	opus2::Encoder::new(RATE, opus2::Channels::Mono, opus2::Application::Voip)
-		.map_err(|e| e.to_string())
+	let mut encoder = opus2::Encoder::new(RATE, opus2::Channels::Mono, opus2::Application::Voip)
+		.map_err(|e| e.to_string())?;
+	let tune = |r: Result<(), opus2::Error>| r.map_err(|e| e.to_string());
+	tune(encoder.set_bitrate(opus2::Bitrate::Bits(24_000)))?;
+	tune(encoder.set_vbr(true))?;
+	tune(encoder.set_complexity(5))?;
+	tune(encoder.set_inband_fec(true))?;
+	tune(encoder.set_packet_loss_perc(10))?;
+	tune(encoder.set_dtx(true))?;
+	Ok(encoder)
 }
 
 pub fn new_decoder() -> Result<opus2::Decoder, String> {
