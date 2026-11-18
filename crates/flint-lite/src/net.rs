@@ -70,6 +70,18 @@ fn clear_session(home: &Path) {
 	let _ = std::fs::remove_file(home.join("session.json"));
 }
 
+/// The server the user last signed in to. Kept apart from the session so it survives logout.
+pub fn load_last_server(home: &Path) -> Option<String> {
+	let text = std::fs::read_to_string(home.join("server.txt")).ok()?;
+	let server = text.trim();
+	(!server.is_empty()).then(|| server.to_string())
+}
+
+fn save_last_server(home: &Path, server: &str) {
+	let _ = std::fs::create_dir_all(home);
+	let _ = std::fs::write(home.join("server.txt"), server);
+}
+
 /// One REST call against `server`. Returns the JSON body, or Null for 204.
 async fn api(
 	http: &reqwest::Client,
@@ -312,6 +324,7 @@ impl Net {
 				token: token.clone(),
 			},
 		);
+		save_last_server(&self.home, &server);
 		if let Some(handle) = self.gateway.take() {
 			handle.abort();
 		}
@@ -658,5 +671,32 @@ mod e2e {
 			assert_eq!(from, ids[0]);
 		}
 		clients[0].0.send(Cmd::StopShare).unwrap();
+	}
+}
+
+#[cfg(test)]
+mod last_server_tests {
+	use super::*;
+
+	#[test]
+	fn last_server_survives_logout() {
+		let home = std::env::temp_dir().join(format!("flint-lite-last-{}", std::process::id()));
+		let _ = std::fs::remove_dir_all(&home);
+		save_session(
+			&home,
+			&SavedSession {
+				server: "https://steel.example".into(),
+				token: "t".into(),
+			},
+		);
+		save_last_server(&home, "https://steel.example");
+		clear_session(&home);
+
+		assert!(load_session(&home).is_none());
+		assert_eq!(
+			load_last_server(&home).as_deref(),
+			Some("https://steel.example")
+		);
+		let _ = std::fs::remove_dir_all(&home);
 	}
 }
