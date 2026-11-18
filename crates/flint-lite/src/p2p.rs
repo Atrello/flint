@@ -59,6 +59,14 @@ const VOICE_REPORT_EVERY: u64 = 50;
 /// How long a ring lasts before it is declined or cancelled.
 pub const RING_TIMEOUT: Duration = Duration::from_secs(30);
 const RINGTONE: &str = "ringtone";
+const RINGBACK: &str = "ringback";
+
+/// An incoming ring: the offer, and whether it renegotiates a connection that already exists.
+struct PendingRing {
+	call_id: String,
+	sdp: String,
+	renegotiate: bool,
+}
 
 /// A signal for the network worker to post through `POST /calls/signal`.
 #[derive(Debug, Clone)]
@@ -85,6 +93,8 @@ struct Peer {
 	ringing: bool,
 	/// True for a connection made for a voice call, so its audio is part of the call.
 	joined: bool,
+	/// The ring is on a connection that already carries a share, so timing out keeps it.
+	renegotiating: bool,
 	audio: Arc<TrackLocalStaticSample>,
 }
 
@@ -100,7 +110,9 @@ struct Inner {
 	in_call: AtomicBool,
 	muted: AtomicBool,
 	/// Incoming voice offers waiting for the user: peer -> (call id, offer SDP).
-	pending: Mutex<HashMap<String, (String, String)>>,
+	pending: Mutex<HashMap<String, PendingRing>>,
+	ringback_on: AtomicBool,
+	ringback_running: AtomicBool,
 	mixer: Mixer,
 }
 
@@ -148,6 +160,8 @@ impl P2p {
 			in_call: AtomicBool::new(false),
 			muted: AtomicBool::new(false),
 			pending: Mutex::new(HashMap::new()),
+			ringback_on: AtomicBool::new(false),
+			ringback_running: AtomicBool::new(false),
 			mixer: mixer.clone(),
 		});
 		let on_error = {
@@ -235,7 +249,8 @@ impl P2p {
 					.to_string();
 				// A voice offer rings the user. Nothing connects until they accept.
 				if payload["voice"].as_bool().unwrap_or(false) {
-					return self.receive_ring(from, call_id, sdp).await;
+					let renegotiate = payload["renegotiate"].as_bool().unwrap_or(false);
+					return self.receive_ring(from, call_id, sdp, renegotiate).await;
 				}
 				self.on_offer(from, call_id, sdp, false).await
 			}
@@ -251,7 +266,12 @@ impl P2p {
 							.map_err(s)?;
 						if let Some(p) = self.inner.peers.lock().await.get_mut(&from) {
 							if p.call_id == call_id {
+								// Only a ring makes this connection part of the call; a share answer does not.
+								if p.ringing {
+									p.joined = true;
+								}
 								p.ringing = false;
+								p.renegotiating = false;
 							}
 						}
 						self.emit_state().await;
@@ -275,10 +295,21 @@ impl P2p {
 				};
 				pc.add_ice_candidate(candidate).await.map_err(s)
 			}
+			"decline" if payload["renegotiate"].as_bool().unwrap_or(false) => {
+				// Declined on a live connection: keep the connection and drop the ring.
+				if let Some(p) = self.inner.peers.lock().await.get_mut(&from) {
+					if p.call_id == call_id {
+						p.ringing = false;
+						p.renegotiating = false;
+					}
+				}
+				self.emit_state().await;
+				Ok(())
+			}
 			"hangup" | "decline" => {
 				let cancelled = {
 					let mut pending = self.inner.pending.lock().await;
-					let matches = pending.get(&from).is_some_and(|(id, _)| *id == call_id);
+					let matches = pending.get(&from).is_some_and(|r| r.call_id == call_id);
 					if matches {
 						pending.remove(&from);
 					}
@@ -306,11 +337,13 @@ impl P2p {
 				.await
 				.get(&peer)
 				.map(|p| (p.joined, p.call_id.clone()));
-			if let Some((joined, old_call)) = existing {
+			if let Some((joined, live_call)) = existing {
 				if joined || !voice {
 					continue;
 				}
-				self.hang_up(&peer, old_call).await;
+				// A share is live on this connection: ring over it so the share keeps running.
+				self.renegotiate_ring(&peer, live_call).await?;
+				continue;
 			}
 			let call_id = new_call_id();
 			let (pc, audio) = self.new_pc(&peer).await?;
@@ -347,6 +380,7 @@ impl P2p {
 					sharing: !voice,
 					ringing: voice,
 					joined: voice,
+					renegotiating: false,
 					audio,
 				},
 			);
@@ -396,6 +430,7 @@ impl P2p {
 				sharing: false,
 				ringing: false,
 				joined: voice,
+				renegotiating: false,
 				audio,
 			},
 		);
@@ -410,25 +445,64 @@ impl P2p {
 	}
 
 	/// A voice offer rings the user. It waits in `pending` until they accept or decline.
-	async fn receive_ring(&self, from: String, call_id: String, sdp: String) -> Result<(), String> {
-		self.inner
-			.pending
-			.lock()
-			.await
-			.insert(from.clone(), (call_id.clone(), sdp));
+	async fn receive_ring(
+		&self,
+		from: String,
+		call_id: String,
+		sdp: String,
+		renegotiate: bool,
+	) -> Result<(), String> {
+		self.inner.pending.lock().await.insert(
+			from.clone(),
+			PendingRing {
+				call_id: call_id.clone(),
+				sdp,
+				renegotiate,
+			},
+		);
 		self.start_ringing(from, call_id);
 		self.emit_state().await;
 		Ok(())
 	}
 
-	/// Accept a ring: connect with `from` and join the call.
+	/// Accept a ring. A new connection is answered from scratch. A ring on a live connection is
+	/// answered on that same connection, so a share keeps running.
 	pub async fn accept_call(&self, from: &str) -> Result<(), String> {
 		let pending = self.inner.pending.lock().await.remove(from);
-		let Some((call_id, sdp)) = pending else {
+		let Some(ring) = pending else {
 			return Err("that call has already ended".into());
 		};
 		self.inner.in_call.store(true, Ordering::SeqCst);
-		self.on_offer(from.to_string(), call_id, sdp, true).await?;
+		if ring.renegotiate {
+			let Some(pc) = self.pc_for(from, &ring.call_id).await else {
+				return Err("the connection has already closed".into());
+			};
+			pc.set_remote_description(RTCSessionDescription::offer(ring.sdp).map_err(s)?)
+				.await
+				.map_err(s)?;
+			let answer = pc.create_answer(None).await.map_err(s)?;
+			let gathered = pc.gathering_complete_promise().await;
+			pc.set_local_description(answer).await.map_err(s)?;
+			let mut gathered = gathered;
+			let _ = gathered.recv().await;
+			let local = pc.local_description().await.ok_or("no local description")?;
+			if let Some(p) = self.inner.peers.lock().await.get_mut(from) {
+				if p.call_id == ring.call_id {
+					p.joined = true;
+					p.ringing = false;
+					p.renegotiating = false;
+				}
+			}
+			let _ = self.inner.out.send(OutSignal {
+				to: from.to_string(),
+				call_id: ring.call_id,
+				kind: "answer",
+				payload: json!({ "sdp": local.sdp }),
+			});
+		} else {
+			self.on_offer(from.to_string(), ring.call_id, ring.sdp, true)
+				.await?;
+		}
 		self.emit_state().await;
 		Ok(())
 	}
@@ -436,15 +510,43 @@ impl P2p {
 	/// Decline a ring, or let it expire: tell the caller and forget the offer.
 	pub async fn decline_call(&self, from: &str) {
 		let pending = self.inner.pending.lock().await.remove(from);
-		if let Some((call_id, _)) = pending {
+		if let Some(ring) = pending {
 			let _ = self.inner.out.send(OutSignal {
 				to: from.to_string(),
-				call_id,
+				call_id: ring.call_id,
 				kind: "decline",
-				payload: Value::Null,
+				payload: json!({ "renegotiate": ring.renegotiate }),
 			});
 		}
 		self.emit_state().await;
+	}
+
+	/// Ring over a connection that already carries a share. The offer renegotiates it.
+	async fn renegotiate_ring(&self, peer: &str, call_id: String) -> Result<(), String> {
+		let Some(pc) = self.pc_for(peer, &call_id).await else {
+			return Ok(());
+		};
+		let gathered = pc.gathering_complete_promise().await;
+		let offer = pc.create_offer(None).await.map_err(s)?;
+		pc.set_local_description(offer).await.map_err(s)?;
+		let mut gathered = gathered;
+		let _ = gathered.recv().await;
+		let local = pc.local_description().await.ok_or("no local description")?;
+		if let Some(p) = self.inner.peers.lock().await.get_mut(peer) {
+			if p.call_id == call_id {
+				p.ringing = true;
+				p.renegotiating = true;
+			}
+		}
+		self.expire_ring_later(peer.to_string(), call_id.clone());
+		let _ = self.inner.out.send(OutSignal {
+			to: peer.to_string(),
+			call_id,
+			kind: "offer",
+			payload: json!({ "sdp": local.sdp, "voice": true, "renegotiate": true }),
+		});
+		self.emit_state().await;
+		Ok(())
 	}
 
 	/// Play a ringtone while a ring waits. It stops when the ring is answered or expires.
@@ -462,7 +564,7 @@ impl P2p {
 					.lock()
 					.await
 					.get(&from)
-					.is_some_and(|(id, _)| *id == call_id);
+					.is_some_and(|r| r.call_id == call_id);
 				if !waiting {
 					break;
 				}
@@ -472,28 +574,63 @@ impl P2p {
 				}
 				this.inner
 					.mixer
-					.push(RINGTONE, &voice::ringtone_frame(frame));
+					.push(RINGTONE, &voice::cadence_frame(frame, 440.0, 50, 150));
 				frame += 1;
 			}
 			this.inner.mixer.remove(RINGTONE);
 		});
 	}
 
-	/// A ring that nobody answers ends after `RING_TIMEOUT`, on the caller's side too.
+	/// Start or stop the caller's ringback tone. It plays while any outgoing ring waits.
+	fn set_ringback(&self, on: bool) {
+		self.inner.ringback_on.store(on, Ordering::SeqCst);
+		if on && !self.inner.ringback_running.swap(true, Ordering::SeqCst) {
+			let inner = self.inner.clone();
+			tokio::spawn(async move {
+				let mut tick = tokio::time::interval(voice::FRAME_DURATION);
+				let mut frame = 0u64;
+				while inner.ringback_on.load(Ordering::SeqCst) {
+					tick.tick().await;
+					// Two seconds of tone, then four of silence.
+					inner
+						.mixer
+						.push(RINGBACK, &voice::cadence_frame(frame, 440.0, 100, 300));
+					frame += 1;
+				}
+				inner.mixer.remove(RINGBACK);
+				inner.ringback_running.store(false, Ordering::SeqCst);
+			});
+		}
+	}
+
+	/// A ring nobody answers ends after `RING_TIMEOUT`, on the caller's side too. A ring on a
+	/// live connection only ends the ring; the connection and its share stay.
 	fn expire_ring_later(&self, peer: String, call_id: String) {
 		let this = self.clone();
 		tokio::spawn(async move {
 			tokio::time::sleep(RING_TIMEOUT).await;
-			let ringing = this
-				.inner
-				.peers
-				.lock()
-				.await
-				.get(&peer)
-				.is_some_and(|p| p.ringing && p.call_id == call_id);
-			if ringing {
-				this.hang_up(&peer, call_id).await;
-				this.emit_state().await;
+			let action = {
+				let mut peers = this.inner.peers.lock().await;
+				match peers.get_mut(&peer) {
+					Some(p) if p.ringing && p.call_id == call_id => {
+						if p.renegotiating {
+							p.ringing = false;
+							p.renegotiating = false;
+							Some(false)
+						} else {
+							Some(true)
+						}
+					}
+					_ => None,
+				}
+			};
+			match action {
+				Some(true) => {
+					this.hang_up(&peer, call_id).await;
+					this.emit_state().await;
+				}
+				Some(false) => this.emit_state().await,
+				None => {}
 			}
 		});
 	}
@@ -746,6 +883,7 @@ impl P2p {
 			.map(|(id, _)| id.clone())
 			.collect();
 		ringing_out.sort();
+		self.set_ringback(!ringing_out.is_empty());
 		outgoing.sort();
 		incoming.sort();
 		connected.sort();
@@ -776,6 +914,8 @@ async fn voice_sender(inner: Arc<Inner>, mut mic: tokio::sync::mpsc::UnboundedRe
 			.lock()
 			.await
 			.values()
+			// Only connections in the call with an accepted peer carry the microphone.
+			.filter(|p| p.joined && !p.ringing)
 			.map(|p| p.audio.clone())
 			.collect();
 		for track in tracks {
@@ -1088,5 +1228,42 @@ mod ring_tests {
 		.await
 		.unwrap();
 		assert!(done.is_some(), "caller sees the decline");
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn call_over_a_live_share_keeps_the_share() {
+		let (a, b, a_ev, b_ev) = pair();
+		drop(a_ev);
+		a.start_share(vec!["b".into()]).await.expect("start share");
+		let handle = tokio::runtime::Handle::current();
+		let (a2, b2) = (a.clone(), b.clone());
+		let outcome = tokio::task::spawn_blocking(move || {
+			let shared = wait(&b_ev, |e| matches!(e, Ev::Frame { .. }).then_some(())).is_some();
+			handle
+				.block_on(a2.start_call(vec!["b".into()]))
+				.expect("start call");
+			let rung = wait(&b_ev, |e| match e {
+				Ev::Call { ringing_in, .. } if ringing_in.contains(&"a".to_string()) => Some(()),
+				_ => None,
+			})
+			.is_some();
+			handle.block_on(b2.accept_call("a")).expect("accept");
+			// Frames keep arriving on the same connection after the call joins.
+			let mut frames_after = 0;
+			let deadline = std::time::Instant::now() + Duration::from_secs(30);
+			while std::time::Instant::now() < deadline && frames_after < 5 {
+				if let Ok(Ev::Frame { .. }) = b_ev.recv_timeout(Duration::from_millis(200)) {
+					frames_after += 1;
+				}
+			}
+			(shared, rung, frames_after)
+		})
+		.await
+		.unwrap();
+		assert!(outcome.0, "viewer received frames before the call");
+		assert!(outcome.1, "viewer is rung over the live share");
+		assert!(outcome.2 >= 5, "share keeps running after accept");
+		a.stop_share().await;
+		a.leave_call().await;
 	}
 }
