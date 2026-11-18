@@ -146,8 +146,6 @@ struct Extras<'a> {
 	retry: Option<&'a client_core::captcha::Retry>,
 	/// Where a challenge the user can solve is reported instead of ending the session.
 	challenge: Option<&'a mut Option<client_core::captcha::Challenge>>,
-	/// Sent as `X-Context-Properties` on a message create.
-	context: Option<client_core::fingerprint::MessageContext>,
 	/// Builds the JSON body after cooldown and route admission.
 	prepare: Option<&'a mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send)>,
 	/// A rejected token returns `Expired` without ending the session; the Gateway decides.
@@ -316,61 +314,6 @@ impl DiscordApi {
 			#[cfg(test)]
 			timeout_clock: std::sync::Mutex::new(None),
 		})
-	}
-	/// Asks Discord once for this device's installation ID and keeps it, before the Gateway
-	/// identifies. Unofficial: SakuraCord's desktop sign-in reads it from an unauthenticated
-	/// `GET /apex/experiments?surface=2`. Best effort and bounded; Serein works without it.
-	pub async fn ensure_installation(&self) {
-		#[derive(serde::Deserialize)]
-		struct Apex {
-			installation: String,
-		}
-		// One attempt per process: a reconnect must not wait on an endpoint that gave no ID.
-		static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-		// Without a route yet the request could only wait; a later connection asks instead.
-		if client_core::fingerprint::installation_id().is_some()
-			|| self.proxy.lock().await.receiver.borrow().is_none()
-			|| ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
-		{
-			return;
-		}
-		#[cfg(not(test))]
-		let base = api_v10_base();
-		#[cfg(test)]
-		let base = self.base.as_str();
-		let fetch = async {
-			let response = self
-				.rest_client()
-				.await
-				.ok()?
-				.get(format!("{base}/apex/experiments?surface=2"))
-				.send()
-				.await
-				.ok()?;
-			if !response.status().is_success()
-				|| response
-					.content_length()
-					.is_some_and(|n| n > MAX_WIRE as u64)
-			{
-				return None;
-			}
-			let mut bytes = Vec::new();
-			let mut body = std::pin::pin!(response.bytes_stream());
-			while let Some(chunk) = futures_util::StreamExt::next(&mut body)
-				.await
-				.transpose()
-				.ok()?
-			{
-				if bytes.len() + chunk.len() > MAX_WIRE {
-					return None;
-				}
-				bytes.extend_from_slice(&chunk);
-			}
-			decode::<Apex>(&bytes).ok()
-		};
-		if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
-			device::set_installation(&apex.installation);
-		}
 	}
 	/// Credential-free client snapshot for Discord REST; authorization is added per request.
 	pub async fn rest_client(&self) -> Result<Client, Failure> {
@@ -592,7 +535,6 @@ impl DiscordApi {
 		&self,
 		channel: model::Id,
 		body: serde_json::Value,
-		context: client_core::fingerprint::MessageContext,
 		retry: Option<&client_core::captcha::Retry>,
 		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
 	) -> Result<model::Message, Failure> {
@@ -605,7 +547,6 @@ impl DiscordApi {
 				Extras {
 					retry,
 					challenge,
-					context: Some(context),
 					..Extras::default()
 				},
 			)
@@ -627,7 +568,6 @@ impl DiscordApi {
 		let Extras {
 			retry,
 			mut challenge,
-			context,
 			mut prepare,
 			advisory,
 		} = extras;
@@ -693,19 +633,6 @@ impl DiscordApi {
 				.await?
 				.request(method.clone(), format!("{base}{path}"))
 				.header(AUTHORIZATION, authorization);
-			if let Some(installation) = client_core::fingerprint::installation_id() {
-				request = request.header(
-					"x-installation-id",
-					HeaderValue::from_str(&installation).map_err(|_| Failure::Protocol)?,
-				);
-			}
-			if let Some(context) = context {
-				request = request.header(
-					"x-context-properties",
-					HeaderValue::from_str(&client_core::fingerprint::context_properties(context))
-						.map_err(|_| Failure::Protocol)?,
-				);
-			}
 			if let Some(retry) = retry {
 				if retry.expired() {
 					return Err(Failure::ProtocolAt(
@@ -1929,14 +1856,7 @@ impl DiscordApi {
 						"message_reference": reference,
 						"allowed_mentions": {"parse":[],"replied_user":false},
 					});
-					self.create_message(
-						channel,
-						body,
-						client_core::fingerprint::MessageContext::Forwarding,
-						None,
-						None,
-					)
-					.await
+					self.create_message(channel, body, None, None).await
 				};
 				Event::SendResult { nonce, result }
 			}
@@ -2411,14 +2331,7 @@ impl DiscordApi {
 			body["attachments"] = serde_json::json!(attachment);
 		}
 		// No enforce_nonce claim until normal-user semantics are live verified. Never auto-retry writes.
-		self.create_message(
-			channel,
-			body,
-			client_core::fingerprint::MessageContext::ChatInput,
-			retry,
-			challenge,
-		)
-		.await
+		self.create_message(channel, body, retry, challenge).await
 	}
 }
 impl DiscordApi {
@@ -3884,7 +3797,6 @@ mod tests {
 		let (header, body) = server.await.unwrap();
 		assert!(header.starts_with("post /channels/2/messages http/1.1\r\n"));
 		// base64 of {"location":"forwarding"}
-		assert!(header.contains("x-context-properties: eyjsb2nhdglvbii6imzvcndhcmrpbmcifq==\r\n"));
 		assert_eq!(
 			body,
 			serde_json::json!({

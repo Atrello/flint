@@ -78,6 +78,11 @@ pub fn configure(server: &str) -> Result<&'static Endpoints, EndpointError> {
 	Ok(ENDPOINTS.get_or_init(|| parsed))
 }
 
+/// The configured endpoints, or `None` before a server address has been set.
+pub fn configured() -> Option<&'static Endpoints> {
+	ENDPOINTS.get()
+}
+
 /// The configured endpoints. Panics if no server was configured: that is a startup bug, since
 /// the login screen cannot run without an address.
 pub fn get() -> &'static Endpoints {

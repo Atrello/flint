@@ -118,13 +118,12 @@ fn main() -> eframe::Result {
 		}
 	}
 	platform::memory::tune_allocator();
-	// The Steel server address comes from FLINT_SERVER until the native login screen lands.
-	let server = std::env::var("FLINT_SERVER").unwrap_or_default();
-	if let Err(error) = model::endpoints::configure(&server) {
-		eprintln!(
-			"Flint needs a Steel server address, for example FLINT_SERVER=https://chat.example.com ({error})."
-		);
-		std::process::exit(2);
+	// FLINT_SERVER presets the server; otherwise the sign-in form asks for it before any network use.
+	if let Ok(server) = std::env::var("FLINT_SERVER")
+		&& !server.trim().is_empty()
+		&& let Err(error) = model::endpoints::configure(&server)
+	{
+		eprintln!("FLINT_SERVER is not usable ({error}); enter the server in the sign-in form.");
 	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
@@ -2575,7 +2574,7 @@ impl Desktop {
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
 			login: None,
-			sign_in_form: sign_in::SignInForm::default(),
+			sign_in_form: sign_in::SignInForm::new(),
 			native_sign_in: None,
 			captcha: captcha::Captcha::default(),
 			connection: None,

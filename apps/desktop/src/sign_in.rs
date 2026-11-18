@@ -8,10 +8,25 @@ pub(super) const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 	60.0
 };
 
+impl SignInForm {
+	/// Starts with the configured server, or the one given in `FLINT_SERVER`, so the field is filled.
+	pub(super) fn new() -> Self {
+		let server = model::endpoints::configured()
+			.map(|endpoints| endpoints.origin.clone())
+			.or_else(|| std::env::var("FLINT_SERVER").ok())
+			.unwrap_or_default();
+		Self {
+			server,
+			..Self::default()
+		}
+	}
+}
+
 /// Fields for the native sign-in form. Only the token leaves this form; the password is cleared
 /// as soon as a sign-in starts.
 #[derive(Default)]
 pub(super) struct SignInForm {
+	pub(super) server: String,
 	pub(super) login: String,
 	pub(super) password: String,
 	pub(super) email: String,
@@ -20,6 +35,11 @@ pub(super) struct SignInForm {
 
 impl Desktop {
 	pub(super) fn connect(&mut self, secret: SessionSecret, save: bool, ctx: &egui::Context) {
+		// Nothing talks to a server until its address is set, whether from FLINT_SERVER or the form.
+		if model::endpoints::configured().is_none() {
+			self.credential_status = "Enter the server address above to sign in";
+			return;
+		}
 		if self.presence_load_pending {
 			self.deferred_connect = Some((secret, save));
 			self.credential_status = "Connecting to Discord…";
@@ -646,6 +666,12 @@ impl Desktop {
 			ui.set_max_width(320.0);
 			ui.add_enabled_ui(idle && !self.fixture_only, |ui| {
 				ui.add(
+					egui::TextEdit::singleline(&mut self.sign_in_form.server)
+						.hint_text("Server, for example https://chat.example.com")
+						.desired_width(f32::INFINITY),
+				);
+				ui.add_space(6.0);
+				ui.add(
 					egui::TextEdit::singleline(&mut self.sign_in_form.login)
 						.hint_text("Username or email")
 						.desired_width(f32::INFINITY),
@@ -691,6 +717,16 @@ impl Desktop {
 	/// Runs sign-in or registration on a worker thread so the window keeps drawing. The result is
 	/// picked up in the frame loop and handed to `connect`, like a token from any other login.
 	pub(super) fn start_native_sign_in(&mut self, ctx: &egui::Context) {
+		let server = self.sign_in_form.server.trim().to_owned();
+		if let Err(error) = model::endpoints::configure(&server) {
+			self.state.status = match error {
+				model::endpoints::EndpointError::AlreadySet => {
+					"This session already uses another server; restart Flint to change it"
+				}
+				_ => "Enter a server address such as https://chat.example.com",
+			};
+			return;
+		}
 		let login = self.sign_in_form.login.trim().to_owned();
 		let password = std::mem::take(&mut self.sign_in_form.password);
 		let email = self.sign_in_form.email.trim().to_owned();

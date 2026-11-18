@@ -93,13 +93,6 @@ pub fn keep_in(file: PathBuf) {
 	state.file = Some(file);
 }
 
-/// Keeps the installation ID Discord issued and saves it with the device.
-pub(crate) fn set_installation(id: &str) {
-	if client_core::fingerprint::set_installation_id(id) {
-		store().save();
-	}
-}
-
 impl Device {
 	/// Saves the persistent cookies and the installation ID. The snapshot is taken under the
 	/// cookie lock and written outside it.
