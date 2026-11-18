@@ -21,12 +21,13 @@ use crate::{
 	gateway::{self, GwEvent},
 	model::{Channel, Cmd, Credentials, Ev, Message, Relationship, TokenResponse, User},
 	p2p::{Emit, OutSignal, P2p},
+	voice::AudioSource,
 };
 
 pub type Ui = (UnboundedSender<Cmd>, std::sync::mpsc::Receiver<Ev>);
 
 /// Start the worker thread. Repaints the UI through `ctx` whenever it sends an event.
-pub fn spawn(ctx: egui::Context, source: Source, home: PathBuf) -> Ui {
+pub fn spawn(ctx: egui::Context, source: Source, audio: AudioSource, home: PathBuf) -> Ui {
 	let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 	let (ev_tx, ev_rx): (StdSender<Ev>, _) = std::sync::mpsc::channel();
 	let emit: Emit = Arc::new(move |ev| {
@@ -40,7 +41,7 @@ pub fn spawn(ctx: egui::Context, source: Source, home: PathBuf) -> Ui {
 				.enable_all()
 				.build()
 				.expect("tokio runtime");
-			rt.block_on(run(cmd_rx, emit, source, home));
+			rt.block_on(run(cmd_rx, emit, source, audio, home));
 		})
 		.expect("spawn network thread");
 	(cmd_tx, ev_rx)
@@ -120,10 +121,16 @@ struct Net {
 	emit: Emit,
 }
 
-async fn run(mut cmds: UnboundedReceiver<Cmd>, emit: Emit, source: Source, home: PathBuf) {
+async fn run(
+	mut cmds: UnboundedReceiver<Cmd>,
+	emit: Emit,
+	source: Source,
+	audio: AudioSource,
+	home: PathBuf,
+) {
 	let (gw_tx, mut gw_rx) = mpsc::unbounded_channel::<GwEvent>();
 	let (sig_tx, mut sig_rx) = mpsc::unbounded_channel::<OutSignal>();
-	let p2p = P2p::new(source, sig_tx, emit.clone());
+	let p2p = P2p::new(source, audio, sig_tx, emit.clone());
 	let mut net = Net {
 		http: reqwest::Client::new(),
 		home,
@@ -281,6 +288,12 @@ impl Net {
 				}
 			}
 			Cmd::StopShare => self.p2p.stop_share().await,
+			Cmd::StartCall(peers) => {
+				if let Err(e) = self.p2p.start_call(peers).await {
+					self.error(format!("Could not start the call: {e}"));
+				}
+			}
+			Cmd::LeaveCall => self.p2p.leave_call().await,
 		}
 	}
 
@@ -438,8 +451,13 @@ mod e2e {
 			% 100_000_000;
 		let (name_a, name_b) = (format!("fla{stamp}"), format!("flb{stamp}"));
 		let ctx = egui::Context::default();
-		let (a_cmd, a_ev) = spawn(ctx.clone(), Source::TestPattern, scratch("a"));
-		let (b_cmd, b_ev) = spawn(ctx, Source::TestPattern, scratch("b"));
+		let (a_cmd, a_ev) = spawn(
+			ctx.clone(),
+			Source::TestPattern,
+			AudioSource::Silence,
+			scratch("a"),
+		);
+		let (b_cmd, b_ev) = spawn(ctx, Source::TestPattern, AudioSource::Silence, scratch("b"));
 
 		let login = |cmd: &UnboundedSender<Cmd>, name: &str| {
 			cmd.send(Cmd::Login {
@@ -518,5 +536,120 @@ mod e2e {
 		assert_eq!(from, id_a);
 		assert_eq!((width, height), (960, 540));
 		a_cmd.send(Cmd::StopShare).unwrap();
+	}
+
+	#[test]
+	#[ignore = "needs a running Steel server; set FLINT_LITE_TEST_SERVER"]
+	fn three_clients_group_chat_and_mesh_share() {
+		let server = std::env::var("FLINT_LITE_TEST_SERVER").expect("FLINT_LITE_TEST_SERVER");
+		let stamp = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.unwrap()
+			.as_millis()
+			% 100_000_000;
+		let ctx = egui::Context::default();
+		let names = [
+			format!("fga{stamp}"),
+			format!("fgb{stamp}"),
+			format!("fgc{stamp}"),
+		];
+		let clients: Vec<Ui> = ["a", "b", "c"]
+			.iter()
+			.map(|tag| {
+				spawn(
+					ctx.clone(),
+					Source::TestPattern,
+					AudioSource::Silence,
+					scratch(&format!("g{tag}")),
+				)
+			})
+			.collect();
+		let mut ids = Vec::new();
+		for (i, (cmd, ev)) in clients.iter().enumerate() {
+			cmd.send(Cmd::Login {
+				server: server.clone(),
+				username: names[i].clone(),
+				password: "password123".into(),
+				register: true,
+			})
+			.unwrap();
+			ids.push(wait(ev, "signed in", |e| match e {
+				Ev::LoggedIn { me, .. } => Some(me.id.clone()),
+				_ => None,
+			}));
+		}
+		// a befriends b and c.
+		for other in [1usize, 2] {
+			clients[0]
+				.0
+				.send(Cmd::AddFriend(names[other].clone()))
+				.unwrap();
+			let (oc, oe) = &clients[other];
+			let a_id = ids[0].clone();
+			wait(oe, "friend request", |e| match e {
+				Ev::Relationships(list)
+					if list.iter().any(|r| {
+						r.kind == relationship_type::INCOMING_REQUEST && r.user.id == a_id
+					}) =>
+				{
+					Some(())
+				}
+				_ => None,
+			});
+			oc.send(Cmd::AcceptFriend(a_id)).unwrap();
+			let other_id = ids[other].clone();
+			wait(&clients[0].1, "friendship", |e| match e {
+				Ev::Relationships(list)
+					if list
+						.iter()
+						.any(|r| r.kind == relationship_type::FRIEND && r.user.id == other_id) =>
+				{
+					Some(())
+				}
+				_ => None,
+			});
+		}
+
+		clients[0]
+			.0
+			.send(Cmd::CreateDm(vec![ids[1].clone(), ids[2].clone()]))
+			.unwrap();
+		let group = wait(&clients[0].1, "group DM", |e| match e {
+			Ev::ChannelUpsert(c) if c.kind == channel_type::GROUP_DM => Some(c.clone()),
+			_ => None,
+		});
+		for i in [1usize, 2] {
+			wait(&clients[i].1, "group DM on member", |e| match e {
+				Ev::ChannelUpsert(c) if c.id == group.id => Some(()),
+				_ => None,
+			});
+		}
+		clients[0]
+			.0
+			.send(Cmd::Send {
+				channel_id: group.id.clone(),
+				content: "group hi".into(),
+			})
+			.unwrap();
+		for i in [1usize, 2] {
+			wait(&clients[i].1, "group message", |e| match e {
+				Ev::Message(m) if m.content == "group hi" => Some(()),
+				_ => None,
+			});
+		}
+
+		// a shares to both b and c, a mesh of two connections.
+		clients[0]
+			.0
+			.send(Cmd::ShareScreen(vec![ids[1].clone(), ids[2].clone()]))
+			.unwrap();
+		for i in [1usize, 2] {
+			let from = wait(&clients[i].1, "screen frame in group", |e| match e {
+				Ev::Frame { from, .. } => Some(from.clone()),
+				_ => None,
+			});
+			assert_eq!(from, ids[0]);
+		}
+		clients[0].0.send(Cmd::StopShare).unwrap();
 	}
 }

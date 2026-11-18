@@ -79,3 +79,18 @@ pub fn decode_jpeg(data: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
 		.to_rgba8();
 	Ok((img.width(), img.height(), img.into_raw()))
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Needs a display: run with `xvfb-run -a cargo test -p flint-lite monitor -- --ignored`.
+	#[test]
+	#[ignore = "needs a display (xvfb-run)"]
+	fn monitor_capture_produces_a_jpeg() {
+		let jpeg = grab_jpeg(Source::Monitor, 1).expect("capture the primary monitor");
+		let (w, h, rgba) = decode_jpeg(&jpeg).expect("decode");
+		assert!(w > 0 && h > 0);
+		assert_eq!(rgba.len(), (w * h * 4) as usize);
+	}
+}
