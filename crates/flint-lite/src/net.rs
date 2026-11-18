@@ -341,9 +341,14 @@ impl Net {
 			me,
 		});
 
+		// Older servers have no /calls/ice-servers. Fall back to a public STUN server quietly;
+		// a failed call is what gets surfaced to the user.
 		match self.get("/calls/ice-servers").await {
 			Ok(config) => self.p2p.set_ice(ice_from_config(&config)).await,
-			Err(e) => self.error(format!("Using default STUN servers: {e}")),
+			Err(e) => {
+				eprintln!("ice-servers unavailable, using default STUN: {e}");
+				self.p2p.set_ice(default_stun()).await;
+			}
 		}
 		self.refresh_relationships().await;
 	}
@@ -397,6 +402,14 @@ impl Net {
 }
 
 /// Convert Steel's `{"iceServers": [...]}` into WebRTC ICE servers.
+/// Used when the server does not provide ICE settings.
+fn default_stun() -> Vec<RTCIceServer> {
+	vec![RTCIceServer {
+		urls: vec!["stun:stun.l.google.com:19302".to_string()],
+		..Default::default()
+	}]
+}
+
 pub fn ice_from_config(config: &Value) -> Vec<RTCIceServer> {
 	config["iceServers"]
 		.as_array()

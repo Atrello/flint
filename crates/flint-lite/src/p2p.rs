@@ -753,6 +753,11 @@ impl P2p {
 			let peer = peer.clone();
 			let call_id = call_id.clone();
 			Box::pin(async move {
+				if matches!(state, RTCPeerConnectionState::Failed) {
+					(this.inner.emit)(Ev::Error(format!(
+						"Call with {peer} could not connect. Check your network or TURN settings."
+					)));
+				}
 				if matches!(
 					state,
 					RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed
