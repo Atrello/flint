@@ -2515,7 +2515,7 @@ impl State {
 			self.apply_guild_created(
 				sequence,
 				Err(auth::Failure::ProtocolAt(
-					"Server creation was not queued; check Discord before retrying",
+					"Server creation was not queued; check the server before retrying",
 				)),
 			);
 			return;

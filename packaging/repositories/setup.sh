@@ -1,12 +1,12 @@
 #!/bin/sh
-# Serein Package Repository Setup Script
+# Flint Package Repository Setup Script
 # Detects distribution (Ubuntu/Debian, Fedora, openSUSE, Arch Linux),
 # imports and verifies the GPG signing key, and configures the package repository.
 set -eu
 
-BASE_URL="${SEREIN_REPO_BASE_URL:-https://viceverse-cz.github.io/Serein}"
-CHANNEL="${SEREIN_CHANNEL:-nightly}"
-EXPECTED_FINGERPRINT="${SEREIN_FINGERPRINT:-CA19DA939E9BCAB500751CE480FE95CAD86141A5}"
+BASE_URL="${FLINT_REPO_BASE_URL:-https://atrello.github.io/flint}"
+CHANNEL="${FLINT_CHANNEL:-nightly}"
+EXPECTED_FINGERPRINT="${FLINT_FINGERPRINT:-CA19DA939E9BCAB500751CE480FE95CAD86141A5}"
 
 if [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
@@ -120,7 +120,7 @@ case "$ARCH" in
         DEB_ARCH=arm64
         ;;
     *)
-        error "Architecture $ARCH is not currently supported by Serein package repositories."
+        error "Architecture $ARCH is not currently supported by Flint package repositories."
         ;;
 esac
 
@@ -135,10 +135,10 @@ esac
 REPO_URL="$BASE_URL/$CHANNEL/$REPO_PATH"
 TEMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_DIR"' EXIT HUP INT TERM
-KEY_URL="$REPO_URL/serein.asc"
-KEY_FILE="$TEMP_DIR/serein.asc"
+KEY_URL="$REPO_URL/flint.asc"
+KEY_FILE="$TEMP_DIR/flint.asc"
 
-log "Configuring Serein ${BOLD}${CHANNEL}${NC} repository for ${BOLD}${PRETTY_NAME:-$ID}${NC} (${ARCH})..."
+log "Configuring Flint ${BOLD}${CHANNEL}${NC} repository for ${BOLD}${PRETTY_NAME:-$ID}${NC} (${ARCH})..."
 log "Fetching official signing key..."
 download "$KEY_URL" "$KEY_FILE" || error "Signing key unavailable for this distribution; its signed repository must be published before setup."
 verify_key "$KEY_FILE"
@@ -148,38 +148,38 @@ INSTALL_CMD=""
 case "$DISTRO_ID" in
     ubuntu)
         log "Installing APT keyring and source list..."
-        $SUDO install -Dm644 "$KEY_FILE" /etc/apt/keyrings/serein.asc
+        $SUDO install -Dm644 "$KEY_FILE" /etc/apt/keyrings/flint.asc
 
-        printf 'deb [arch=%s signed-by=/etc/apt/keyrings/serein.asc] %s ./\n' "$DEB_ARCH" "$REPO_URL" | \
-            $SUDO tee /etc/apt/sources.list.d/serein.list >/dev/null
+        printf 'deb [arch=%s signed-by=/etc/apt/keyrings/flint.asc] %s ./\n' "$DEB_ARCH" "$REPO_URL" | \
+            $SUDO tee /etc/apt/sources.list.d/flint.list >/dev/null
 
         log "Updating APT package lists..."
-        $SUDO apt-get update -o Dir::Etc::sourcelist="sources.list.d/serein.list" -o Dir::Etc::sourceparts="-" >/dev/null 2>&1 || $SUDO apt-get update >/dev/null 2>&1
+        $SUDO apt-get update -o Dir::Etc::sourcelist="sources.list.d/flint.list" -o Dir::Etc::sourceparts="-" >/dev/null 2>&1 || $SUDO apt-get update >/dev/null 2>&1
 
-        INSTALL_CMD="$SUDO apt install serein"
+        INSTALL_CMD="$SUDO apt install flint"
         ;;
 
     fedora)
         log "Importing RPM key and configuring DNF repository..."
 
-        REPO_FILE="$TEMP_DIR/serein.repo"
-        download "$REPO_URL/serein.repo" "$REPO_FILE"
+        REPO_FILE="$TEMP_DIR/flint.repo"
+        download "$REPO_URL/flint.repo" "$REPO_FILE"
         $SUDO rpm --import "$KEY_FILE"
-        $SUDO install -m644 "$REPO_FILE" /etc/yum.repos.d/serein.repo
+        $SUDO install -m644 "$REPO_FILE" /etc/yum.repos.d/flint.repo
 
-        INSTALL_CMD="$SUDO dnf install serein"
+        INSTALL_CMD="$SUDO dnf install flint"
         ;;
 
     opensuse-tumbleweed)
         log "Importing RPM key and configuring Zypper repository..."
         $SUDO rpm --import "$KEY_FILE"
 
-        REPO_FILE="$TEMP_DIR/serein.repo"
-        download "$REPO_URL/serein.repo" "$REPO_FILE"
-        $SUDO install -m644 "$REPO_FILE" /etc/zypp/repos.d/serein.repo
-        $SUDO zypper --non-interactive refresh serein-$CHANNEL >/dev/null 2>&1 || true
+        REPO_FILE="$TEMP_DIR/flint.repo"
+        download "$REPO_URL/flint.repo" "$REPO_FILE"
+        $SUDO install -m644 "$REPO_FILE" /etc/zypp/repos.d/flint.repo
+        $SUDO zypper --non-interactive refresh flint-$CHANNEL >/dev/null 2>&1 || true
 
-        INSTALL_CMD="$SUDO zypper install serein"
+        INSTALL_CMD="$SUDO zypper install flint"
         ;;
 
     arch)
@@ -189,29 +189,29 @@ case "$DISTRO_ID" in
 
         PACMAN_CONF="/etc/pacman.conf"
 
-        if grep -q "\[serein\]" "$PACMAN_CONF"; then
-            log "Repository [serein] already present in $PACMAN_CONF."
+        if grep -q "\[flint\]" "$PACMAN_CONF"; then
+            log "Repository [flint] already present in $PACMAN_CONF."
         else
-            printf '\n[serein]\nSigLevel = Required\nServer = %s\n' "$REPO_URL" | \
+            printf '\n[flint]\nSigLevel = Required\nServer = %s\n' "$REPO_URL" | \
                 $SUDO tee -a "$PACMAN_CONF" >/dev/null
         fi
 
-        # Refresh the Serein database alone. Refreshing every database without upgrading
+        # Refresh the Flint database alone. Refreshing every database without upgrading
         # (`pacman -Sy`) is a partial upgrade, which Arch does not support, and installing
-        # Serein should not force a full system upgrade either.
-        SEREIN_CONF="$TEMP_DIR/pacman-serein.conf"
-        # Keep the system's options and the Serein section only; an Include among the options
+        # Flint should not force a full system upgrade either.
+        FLINT_CONF="$TEMP_DIR/pacman-flint.conf"
+        # Keep the system's options and the Flint section only; an Include among the options
         # could bring other repositories back in.
         awk '/^\[options\]/ { part = 1; print; next }
-             /^\[serein\]/ { part = 2; print; next }
+             /^\[flint\]/ { part = 2; print; next }
              /^\[/ { part = 0 }
              part == 1 && /^[[:space:]]*Include[[:space:]]*=/ { next }
-             part' "$PACMAN_CONF" > "$SEREIN_CONF"
-        log "Refreshing the Serein package database..."
-        $SUDO pacman -Sy --config "$SEREIN_CONF" >/dev/null 2>&1 || \
-            warn "Could not refresh the Serein package database; run 'sudo pacman -Syu' before installing."
+             part' "$PACMAN_CONF" > "$FLINT_CONF"
+        log "Refreshing the Flint package database..."
+        $SUDO pacman -Sy --config "$FLINT_CONF" >/dev/null 2>&1 || \
+            warn "Could not refresh the Flint package database; run 'sudo pacman -Syu' before installing."
 
-        INSTALL_CMD="$SUDO pacman -S serein"
+        INSTALL_CMD="$SUDO pacman -S flint"
         ;;
 
     *)
@@ -235,7 +235,7 @@ else
 fi
 
 if [ "$TTY_INPUT" -eq 1 ]; then
-    printf "%b?%b Would you like to install %bSerein%b now? [Y/n]: " "${PURPLE}" "${NC}" "${BOLD}" "${NC}"
+    printf "%b?%b Would you like to install %bFlint%b now? [Y/n]: " "${PURPLE}" "${NC}" "${BOLD}" "${NC}"
     if [ -t 0 ]; then
         read -r answer || answer=n
     else
@@ -252,7 +252,7 @@ if [ "$TTY_INPUT" -eq 1 ]; then
 fi
 
 if [ "$DO_INSTALL" = "true" ]; then
-    log "Installing Serein (${INSTALL_CMD})..."
+    log "Installing Flint (${INSTALL_CMD})..."
     # Package managers also prompt for keys/transactions when the script is piped.
     if [ -t 0 ]; then
         $INSTALL_CMD
@@ -260,9 +260,9 @@ if [ "$DO_INSTALL" = "true" ]; then
         $INSTALL_CMD </dev/tty
     fi
     printf '\n'
-    success "${BOLD}Serein installed successfully!${NC}"
-    log "Launch it from your desktop application launcher or run ${BOLD}serein${NC}."
+    success "${BOLD}Flint installed successfully!${NC}"
+    log "Launch it from your desktop application launcher or run ${BOLD}flint${NC}."
 else
-    log "To install Serein later, run:"
+    log "To install Flint later, run:"
     printf '\n    %b%s%b\n\n' "${CYAN}" "$INSTALL_CMD" "${NC}"
 fi

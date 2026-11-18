@@ -452,7 +452,7 @@ impl State {
 		if let Some((action, _, _)) = self.server_actions.pending.take() {
 			self.server_actions.status = Some((
 				action.guild(),
-				"Outcome unknown; check Discord before retrying",
+				"Outcome unknown; check the server before retrying",
 			));
 		}
 	}

@@ -24,14 +24,14 @@ assert.equal(getLastRelease({
   ] }, options: { tagFormat: 'v${version}' },
 }).version, '1.0.0');
 const notes = await generateNotes({ preset: 'conventionalcommits' }, {
-  cwd: process.cwd(), logger, options: { repositoryUrl: 'https://github.com/example/serein' },
+  cwd: process.cwd(), logger, options: { repositoryUrl: 'https://github.com/example/flint' },
   commits: [{ message: 'fix(ui): fix scrolling', hash: 'abcdef1' }],
   lastRelease: { gitTag: 'v1.0.0' }, nextRelease: { version: '1.0.1', gitTag: 'v1.0.1' },
 });
 assert(notes.includes('fix scrolling'));
 
 const releaseNotesContext = {
-  cwd: process.cwd(), logger, options: { repositoryUrl: 'https://github.com/ViceVerse-cz/Serein' },
+  cwd: process.cwd(), logger, options: { repositoryUrl: 'https://github.com/Atrello/flint' },
   commits: [
     { hash: 'eb98a663421d6e142fe0f5f3be6f175a1b95a8e9', author: { name: 'Release Note Author', email: 'release-note-author@example.invalid' }, message: 'feat(ui): add category and channel permission settings (#149)' },
     { hash: 'baec1dfc7b5755b0f063a1ea16d05f81936d0dc0', author: { name: 'Audio Note Author', email: 'audio-note-author@example.invalid' }, message: 'feat(audio): bundle notification sounds (#140)' },

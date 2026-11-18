@@ -1049,7 +1049,7 @@ impl State {
 				self.user_actions.bump_view();
 			}
 			self.user_actions.status =
-				Some("Outcome unknown · check the official client before retrying");
+				Some("Outcome unknown · check the server before retrying");
 		}
 	}
 	pub(crate) fn observe_dm_reopened(&mut self, channel: Id) {

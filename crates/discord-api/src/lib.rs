@@ -778,7 +778,7 @@ impl DiscordApi {
 
 				if error.code == Some(40012) {
 					return Err(Failure::ProtocolAt(
-						"Discord revoked this connection; reconnect the linked service in the official client",
+						"The server revoked this connection; reconnect the linked service",
 					));
 				}
 
@@ -805,7 +805,7 @@ impl DiscordApi {
 							return Err(Failure::Challenged);
 						}
 						return Err(Failure::ProtocolAt(
-							"This verification is unavailable; complete the action in the official client",
+							"This verification is unavailable; the action cannot be completed here",
 						));
 					}
 					if !auth_challenge && write && challenge.is_none() {
@@ -813,7 +813,7 @@ impl DiscordApi {
 						// request). No solver is wired for this action, but it is not a session
 						// challenge: keep the connection and report a bounded local reason.
 						return Err(Failure::ProtocolAt(
-							"Discord requires verification for this action; complete it in the official client",
+							"Verification is required for this action; it cannot be completed here",
 						));
 					}
 
@@ -868,6 +868,12 @@ impl DiscordApi {
 					&& path.starts_with("/users/@me/notes/")
 				{
 					return Ok(br#"{"note":""}"#.to_vec());
+				}
+				// Payload too large: the server's per-file cap, not an unknown response.
+				if error.code == Some(40005) || status == StatusCode::PAYLOAD_TOO_LARGE {
+					return Err(Failure::ProtocolAt(
+						"The server does not accept a file this large; choose a smaller file",
+					));
 				}
 				if error.code == Some(160004) {
 					return Err(Failure::ProtocolAt(

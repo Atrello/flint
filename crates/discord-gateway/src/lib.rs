@@ -58,7 +58,7 @@ pub enum Reconnect {
 	Identify,
 	Stop,
 }
-/// Serein conservatively stops on malformed traffic and rate-limit closes even where
+/// Flint conservatively stops on malformed traffic and rate-limit closes even where
 /// Discord permits reconnecting; replaying the same producer could repeat the violation.
 /// 4015 (unofficial: too many user-account sessions) stops too, since every identify adds one.
 pub fn close_action(code: u16) -> Reconnect {
@@ -514,14 +514,15 @@ impl Diagnostics {
 			.scope
 			.len()
 			.saturating_add(label.len())
-			.saturating_add(11);
+			// "[Flint " + "] " + newline: the fixed prefix and suffix of every line.
+			.saturating_add(10);
 		if self.remaining == 0 || bytes > self.bytes {
 			return;
 		}
 		// Charge attempted output even if stderr is closed or accepts only part of a line.
 		self.remaining -= 1;
 		self.bytes -= bytes;
-		let _ = writeln!(writer, "[Serein {}] {label}", self.scope);
+		let _ = writeln!(writer, "[Flint {}] {label}", self.scope);
 	}
 }
 fn ignored_dispatch_label(name: Option<&str>) -> &'static str {
@@ -1562,12 +1563,11 @@ async fn run_session(
 	outgoing_activity.update_afk(*afk.borrow_and_update());
 	let mut member_diagnostics = Diagnostics::new(
 		"members",
-		std::env::var_os("SEREIN_MEMBER_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1")),
+		std::env::var_os("FLINT_MEMBER_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1")),
 	);
 	let mut gateway_diagnostics = Diagnostics::new(
 		"gateway",
-		std::env::var_os("SEREIN_GATEWAY_DIAGNOSTICS").as_deref()
-			== Some(std::ffi::OsStr::new("1")),
+		std::env::var_os("FLINT_GATEWAY_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1")),
 	);
 	let mut state = ResumeState::default();
 	// A session that replaces an established one resyncs on READY and keeps retrying outages.
@@ -3805,7 +3805,7 @@ mod member_tests {
 		for _ in 0..1000 {
 			enabled.record_to(label, &mut output);
 		}
-		let line = "[Serein gateway] unsupported dispatch ignored\n";
+		let line = "[Flint gateway] unsupported dispatch ignored\n";
 		assert_eq!(output, line.repeat(64).as_bytes());
 		assert_eq!(enabled.remaining, 0);
 		assert_eq!(enabled.bytes, 8 * 1024 - output.len());
@@ -3817,13 +3817,14 @@ mod member_tests {
 		short.bytes = 20;
 		short.record_to("\u{e9}", &mut output);
 		short.record_to("another line", &mut output);
-		assert_eq!(output, "[Serein members] \u{e9}\n".as_bytes());
-		assert_eq!((short.remaining, short.bytes), (63, 0));
+		assert_eq!(output, "[Flint members] \u{e9}\n".as_bytes());
+		// "[Flint members] " + "é" + newline charges 19 bytes, leaving 1 of the 20 budgeted.
+		assert_eq!((short.remaining, short.bytes), (63, 1));
 		static OVERSIZED: [u8; 8192] = [b'x'; 8192];
 		let mut oversized = Diagnostics::new("gateway", true);
 		oversized.record_to(std::str::from_utf8(&OVERSIZED).unwrap(), &mut output);
 		assert_eq!(oversized.remaining, 64);
-		assert_eq!(output.len(), 20);
+		assert_eq!(output.len(), 19);
 
 		struct Closed;
 		impl std::io::Write for Closed {

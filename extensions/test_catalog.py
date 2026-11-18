@@ -6,7 +6,7 @@ import pack
 
 theme = (catalog.ROOT / "themes/ocean.serein-extension").read_bytes()
 plugin = (catalog.ROOT / "plugins/packages/message-delete-protector.serein-extension").read_bytes()
-assert catalog.validate(theme)["id"] == "serein-ocean"
+assert catalog.validate(theme)["id"] == "flint-ocean"
 assert catalog.validate(plugin)["kind"] == "plugin"
 rpc = (catalog.ROOT / "plugins/packages/custom-rpc.serein-extension").read_bytes()
 assert catalog.validate(rpc)["capabilities"] == ["rich_presence", "storage"]

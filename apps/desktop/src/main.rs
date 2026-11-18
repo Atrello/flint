@@ -571,9 +571,9 @@ fn main() -> eframe::Result {
 	let transparency_available =
 		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
 	#[cfg(target_os = "windows")]
-	let icon = include_bytes!("../../../packaging/windows/serein.png").as_slice();
+	let icon = include_bytes!("../../../packaging/windows/flint.png").as_slice();
 	#[cfg(target_os = "linux")]
-	let icon = include_bytes!("../../../packaging/linux/hicolor/256x256/apps/serein.png").as_slice();
+	let icon = include_bytes!("../../../packaging/linux/hicolor/256x256/apps/flint.png").as_slice();
 	let options = eframe::NativeOptions {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
@@ -591,14 +591,14 @@ fn main() -> eframe::Result {
 				)
 				.with_min_inner_size(app_settings::MIN_WINDOW_SIZE.map(|size| size as f32))
 				.with_active(!start_minimized)
-				.with_app_id("cz.viceverse.serein");
+				.with_app_id("dev.atrello.flint");
 			#[cfg(any(target_os = "windows", target_os = "linux"))]
 			let builder = builder
 				.with_icon(eframe::icon_data::from_png_bytes(icon).expect("bundled app icon"));
 			if cfg!(target_os = "macos") {
 				// Discord-style inline title bar: traffic lights sit over the app's own strip.
 				// eframe swaps in the egui logo when no icon is set; an empty icon keeps the
-				// bundle's Serein.icns in the Dock and app switcher.
+				// bundle's Flint.icns in the Dock and app switcher.
 				builder
 					.with_icon(egui::IconData::default())
 					.with_title_shown(false)
@@ -632,7 +632,7 @@ fn main() -> eframe::Result {
 		..Default::default()
 	};
 	let result = eframe::run_native(
-		"Serein",
+		"Flint",
 		options,
 		Box::new(move |cc| {
 			let mut desktop = Desktop::new(
@@ -665,7 +665,7 @@ fn main() -> eframe::Result {
 	// Quitting mid-share drops media workers that are still closing their encoders, and
 	// NVIDIA's exit handlers crash or deadlock if the process exits during that teardown.
 	if !discord_voice::wait_for_media_threads(std::time::Duration::from_secs(5)) {
-		eprintln!("Screen or camera capture was still closing when Serein exited.");
+		eprintln!("Screen or camera capture was still closing when Flint exited.");
 	}
 	result
 }
@@ -898,7 +898,7 @@ impl FrameMetrics {
 	fn new(sample: Option<(Duration, Duration)>) -> Self {
 		Self {
 			enabled: sample.is_some()
-				|| std::env::var_os("SEREIN_FRAME_DIAGNOSTICS").is_some_and(|v| v == "1"),
+				|| std::env::var_os("FLINT_FRAME_DIAGNOSTICS").is_some_and(|v| v == "1"),
 			started: None,
 			sample: sample.map(|(warmup, duration)| FrameSample {
 				ready: std::time::Instant::now() + warmup,
@@ -928,7 +928,7 @@ impl FrameMetrics {
 		}
 		let started = *sample.started.get_or_insert_with(|| {
 			Self::sample_record(serde_json::json!({
-				"serein_frame_sample": "start",
+				"flint_frame_sample": "start",
 				"viewport_size": viewport_size,
 				"pixels_per_point": pixels_per_point,
 			}));
@@ -940,7 +940,7 @@ impl FrameMetrics {
 		}
 		sample.complete = true;
 		Self::sample_record(serde_json::json!({
-			"serein_frame_sample": "complete",
+			"flint_frame_sample": "complete",
 			"elapsed_ms": elapsed.as_millis(),
 			"callbacks": self.frames,
 			"without_input": self.inputless,
@@ -1001,7 +1001,7 @@ impl Drop for FrameMetrics {
 			let _ = writeln!(
 				std::io::stderr(),
 				// Preserve the legacy diagnostic label; elapsed callback time is wall time.
-				"[Serein frames] callbacks={} without_input={} cpu_us_buckets(1000,2000,4000,8000,16000,32000,64000,above)={:?} reflows(total,consecutive)={:?}",
+				"[Flint frames] callbacks={} without_input={} cpu_us_buckets(1000,2000,4000,8000,16000,32000,64000,above)={:?} reflows(total,consecutive)={:?}",
 				self.frames,
 				self.inputless,
 				self.buckets,
@@ -2009,7 +2009,7 @@ impl Desktop {
 			let (found, wake) = (gsync.clone(), cc.egui_ctx.clone());
 			platform::gsync::detect(move |enabled| {
 				if enabled {
-					eprintln!("[Serein] G-SYNC display detected");
+					eprintln!("[Flint] G-SYNC display detected");
 					found.store(true, std::sync::atomic::Ordering::Relaxed);
 					wake.request_repaint();
 				}
@@ -2139,7 +2139,7 @@ impl Desktop {
 		messaging.build = ui::design::Build {
 			channel: if cfg!(debug_assertions) {
 				ui::design::Channel::Dev
-			} else if option_env!("SEREIN_CHANNEL") == Some("nightly") {
+			} else if option_env!("FLINT_CHANNEL") == Some("nightly") {
 				ui::design::Channel::Nightly
 			} else {
 				ui::design::Channel::Stable
@@ -2409,8 +2409,8 @@ impl Desktop {
 				// Offline lookups never start, so this one is pending from the outset.
 				state
 					.invites
-					.insert("serein".into(), (std::time::Instant::now(), None));
-				messaging.open_rpc_invite(state.generation, "serein".into());
+					.insert("flint".into(), (std::time::Instant::now(), None));
+				messaging.open_rpc_invite(state.generation, "flint".into());
 			} else {
 				messaging.preview_join_server(state.generation);
 			}
@@ -2842,7 +2842,7 @@ impl Desktop {
 	fn diagnostics_report(&self, ctx: &egui::Context) -> String {
 		use std::fmt::Write;
 		let mut report = String::with_capacity(24 * 1024);
-		report.push_str("# Serein diagnostics\n\n");
+		report.push_str("# Flint diagnostics\n\n");
 		report.push_str(&self.messaging.diagnostic_info(ctx));
 		report.push('\n');
 		let log_file = diagnostics::path()
@@ -2928,7 +2928,7 @@ impl Desktop {
 			let wake = ctx.clone();
 			self.runtime.spawn(async move {
 				let destination =
-					platform::save::text_destination(parent, "serein-diagnostics.txt").await;
+					platform::save::text_destination(parent, "flint-diagnostics.txt").await;
 				let outcome = match destination {
 					Some(path) => {
 						let written = path.clone();
@@ -3274,14 +3274,12 @@ impl Desktop {
 					None
 				}
 				Command::Website => {
-					ctx.open_url(egui::OpenUrl::new_tab(
-						"https://github.com/ViceVerse-cz/Serein",
-					));
+					ctx.open_url(egui::OpenUrl::new_tab("https://github.com/Atrello/flint"));
 					None
 				}
 				Command::ReportIssue => {
 					ctx.open_url(egui::OpenUrl::new_tab(
-						"https://github.com/ViceVerse-cz/Serein/issues/new/choose",
+						"https://github.com/Atrello/flint/issues/new/choose",
 					));
 					None
 				}
@@ -3291,7 +3289,7 @@ impl Desktop {
 			}
 		}
 	}
-	/// Whether closing may keep Serein running without a window. macOS apps stay in the Dock
+	/// Whether closing may keep Flint running without a window. macOS apps stay in the Dock
 	/// until quit, and the Dock icon reopens the window.
 	fn background_available(&self) -> bool {
 		cfg!(target_os = "macos") || self.tray_available()
@@ -5003,14 +5001,14 @@ impl Desktop {
 						if self.messaging.custom_font.busy && self.font_picker.is_none() {
 							self.messaging.custom_font.busy = false;
 							self.messaging.custom_font.status =
-								"Local storage worker stopped. Restart Serein to save fonts.";
+								"Local storage worker stopped. Restart Flint to save fonts.";
 						}
 						if self.messaging.channel_preferences_reload
 							|| self.messaging.channel_preferences_load_pending
 						{
 							self.messaging.channel_preferences_reload = false;
 							self.messaging.channel_preferences_load_pending = false;
-							self.messaging.channel_preferences_status = "Local storage worker stopped; restart Serein to restore channel preferences.";
+							self.messaging.channel_preferences_status = "Local storage worker stopped; restart Flint to restore channel preferences.";
 						}
 						presence_cache_stopped = self.presence_load_pending;
 						break;
@@ -5316,7 +5314,7 @@ impl Desktop {
 							"Login saved in the OS credential store"
 						}
 						platform::Saved::Plaintext => {
-							"No OS keyring found, so the login is saved in a private file in Serein's data folder"
+							"No OS keyring found, so the login is saved in a private file in Flint's data folder"
 						}
 					}
 				}
@@ -5353,7 +5351,7 @@ impl Desktop {
 						// Nothing could have been saved without a credential store.
 						Err(platform::CredentialError::NoStore) => "",
 						Err(_) => {
-							"Could not remove the Serein saved login in your OS credential manager"
+							"Could not remove the Flint saved login in your OS credential manager"
 						}
 					};
 				}
@@ -5681,15 +5679,15 @@ impl Desktop {
 				],
 			);
 			for (setting, scope) in [
-				("SEREIN_MEMBER_DIAGNOSTICS", "members"),
-				("SEREIN_GATEWAY_DIAGNOSTICS", "gateway"),
+				("FLINT_MEMBER_DIAGNOSTICS", "members"),
+				("FLINT_GATEWAY_DIAGNOSTICS", "gateway"),
 			] {
 				if std::env::var_os(setting).as_deref() == Some(std::ffi::OsStr::new("1")) {
 					use std::io::Write;
 					// One extra fixed-label terminal line per enabled scope; closed stderr is OK.
 					let _ = writeln!(
 						std::io::stderr(),
-						"[Serein {scope}] Session stopped: {}",
+						"[Flint {scope}] Session stopped: {}",
 						failure.label()
 					);
 				}
@@ -5840,7 +5838,7 @@ impl Desktop {
 		let radius = round_corners::RADIUS * self.window.scale_factor() as f32;
 		ctx.layer_painter(egui::LayerId::new(
 			egui::Order::Debug,
-			egui::Id::unique("serein-round-corners"),
+			egui::Id::unique("flint-round-corners"),
 		))
 		.add(round_corners::Mask::callback(
 			ctx.viewport_rect(),
@@ -5947,7 +5945,7 @@ impl eframe::App for Desktop {
 	}
 	fn repaint_on_device_event(&mut self, event: &winit::event::DeviceEvent) -> Option<bool> {
 		// Raw motion duplicates the window's cursor events, which still repaint for hover;
-		// Serein never reads it (`PointerState::motion`).
+		// Flint never reads it (`PointerState::motion`).
 		matches!(event, winit::event::DeviceEvent::MouseMotion { .. }).then_some(false)
 	}
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -6732,7 +6730,7 @@ impl eframe::App for Desktop {
 						ui.painter().rect_filled(rect, 8, p.accent);
 						ui::icons::paint(
 							ui.painter(),
-							ui::icons::Icon::Serein,
+							ui::icons::Icon::Flint,
 							rect.shrink(7.0),
 							p.accent_text,
 						);

@@ -406,7 +406,7 @@ impl Desktop {
 							ui.label(
 								ui::design::semibold(
 									ui,
-									ui::i18n::translate("main-restoring-screen-serein"),
+									ui::i18n::translate("main-restoring-screen-flint"),
 									16.0,
 								)
 								.color(p.muted),
@@ -515,7 +515,7 @@ impl Desktop {
 							ui.label(
 								ui::design::semibold(
 									ui,
-									ui::i18n::translate("main-sign-in-screen-serein"),
+									ui::i18n::translate("main-sign-in-screen-flint"),
 									15.0,
 								)
 								.color(p.text_strong),
@@ -774,7 +774,7 @@ impl Desktop {
 					ui::i18n::translate_if_key(if returning {
 						"main-sign-in-header-welcome-back"
 					} else {
-						"main-sign-in-header-welcome-to-serein"
+						"main-sign-in-header-welcome-to-flint"
 					}),
 					24.0,
 				)
@@ -1107,7 +1107,7 @@ impl Desktop {
 		let p = ui::design::palette(ui);
 		if ui::design::disclosure(
 			ui,
-			&ui::i18n::translate("main-sign-in-disclosures-about-serein"),
+			&ui::i18n::translate("main-sign-in-disclosures-about-flint"),
 			self.about_open,
 		)
 		.clicked()
@@ -1210,7 +1210,7 @@ impl Desktop {
 	}
 }
 
-/// The Serein mark on a solid accent tile; one shape at every size, no halo.
+/// The Flint mark on a solid accent tile; one shape at every size, no halo.
 fn app_mark(ui: &mut egui::Ui, size: f32) {
 	let p = ui::design::palette(ui);
 	let (mark, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
@@ -1218,7 +1218,7 @@ fn app_mark(ui: &mut egui::Ui, size: f32) {
 		.rect_filled(mark, (size * 0.25).round() as u8, p.accent);
 	ui::icons::paint(
 		ui.painter(),
-		ui::icons::Icon::Serein,
+		ui::icons::Icon::Flint,
 		mark.shrink(size * 0.24),
 		p.accent_text,
 	);

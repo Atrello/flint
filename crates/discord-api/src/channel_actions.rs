@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use wreq::Method;
 
 const MAX_CHANNEL_BYTES: usize = 64 * 1024;
+const CREATE_REJECTED: &str = "The server rejected this channel; nothing was created";
 fn write_failure(failure: Failure) -> Failure {
 	if matches!(failure, Failure::Capacity | Failure::Protocol) {
 		Failure::Ambiguous
@@ -670,10 +671,21 @@ impl DiscordApi {
 			),
 			_ => return Err(Failure::Protocol),
 		};
+		let creating = matches!(
+			action,
+			Action::Create { .. } | Action::CreateCategory { .. }
+		);
 		let bytes = self
 			.request_limited(method, &path, body, MAX_CHANNEL_BYTES)
 			.await
-			.map_err(write_failure)?;
+			.map_err(|failure| {
+				// A rejected create never reaches the server's store, so the outcome is known.
+				if creating && failure == Failure::Protocol {
+					Failure::ProtocolAt(CREATE_REJECTED)
+				} else {
+					write_failure(failure)
+				}
+			})?;
 		if matches!(action, Action::Delete) {
 			channel_value(&bytes, guild, Some(channel)).map_err(write_failure)?;
 			return Ok(Outcome::Deleted);

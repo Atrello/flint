@@ -3,7 +3,7 @@
   "id": "offline-composer-tools",
   "name": "Offline Composer Tools",
   "version": "1.0.2",
-  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "author": "Equicord/Vencord contributors; Flint port contributors",
   "license": "GPL-3.0-or-later",
   "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/offline-composer-tools",
   "kind": "plugin",
