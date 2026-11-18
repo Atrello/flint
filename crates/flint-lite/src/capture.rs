@@ -22,7 +22,6 @@ use nokhwa::{
 
 /// Frames wider than this are scaled down before encoding.
 const MAX_WIDTH: u32 = 1280;
-const CAMERA_MAX_WIDTH: u32 = 640;
 const JPEG_QUALITY: u8 = 60;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,10 +39,13 @@ pub fn grab_jpeg(source: Source, counter: u64) -> Result<Vec<u8>, String> {
 	encode_jpeg(frame)
 }
 
-/// Grab one camera frame and encode it as JPEG. Cameras are smaller than screens: frames are
-/// capped at `CAMERA_MAX_WIDTH` so the feed stays cheap to encode and send.
-/// `Ok(None)` means the camera has not produced its first frame yet.
-pub fn grab_camera_jpeg(source: Source, counter: u64) -> Result<Option<Vec<u8>>, String> {
+/// Camera frames are letterboxed to this size so the H.264 encoder gets one fixed size.
+pub const CAMERA_WIDTH: u32 = 1280;
+pub const CAMERA_HEIGHT: u32 = 720;
+
+/// Grab one camera frame as RGBA at `CAMERA_WIDTH` x `CAMERA_HEIGHT`. `Ok(None)` means the
+/// camera has not produced its first frame yet.
+pub fn grab_camera_frame(source: Source, counter: u64) -> Result<Option<RgbaImage>, String> {
 	let frame = match source {
 		Source::Monitor => match grab_device_camera()? {
 			Some(frame) => frame,
@@ -51,13 +53,28 @@ pub fn grab_camera_jpeg(source: Source, counter: u64) -> Result<Option<Vec<u8>>,
 		},
 		Source::TestPattern => camera_test_pattern(counter),
 	};
-	let frame = if frame.width() > CAMERA_MAX_WIDTH {
-		let h = (frame.height() as u64 * CAMERA_MAX_WIDTH as u64 / frame.width() as u64) as u32;
-		image::imageops::resize(&frame, CAMERA_MAX_WIDTH, h.max(1), FilterType::Triangle)
-	} else {
-		frame
-	};
-	encode_jpeg(frame).map(Some)
+	Ok(Some(fit_to_camera(frame)))
+}
+
+/// Scale `frame` to fit the camera size, keeping its aspect ratio, and pad the rest with black.
+fn fit_to_camera(frame: RgbaImage) -> RgbaImage {
+	if frame.width() == CAMERA_WIDTH && frame.height() == CAMERA_HEIGHT {
+		return frame;
+	}
+	let scale = (CAMERA_WIDTH as f32 / frame.width() as f32)
+		.min(CAMERA_HEIGHT as f32 / frame.height() as f32);
+	let w = ((frame.width() as f32 * scale) as u32).clamp(2, CAMERA_WIDTH);
+	let h = ((frame.height() as f32 * scale) as u32).clamp(2, CAMERA_HEIGHT);
+	let scaled = image::imageops::resize(&frame, w, h, FilterType::Triangle);
+	let mut canvas =
+		RgbaImage::from_pixel(CAMERA_WIDTH, CAMERA_HEIGHT, image::Rgba([0, 0, 0, 255]));
+	image::imageops::replace(
+		&mut canvas,
+		&scaled,
+		((CAMERA_WIDTH - w) / 2) as i64,
+		((CAMERA_HEIGHT - h) / 2) as i64,
+	);
+	canvas
 }
 
 /// The camera is owned by one thread. It runs while frames are wanted and closes the device
@@ -111,7 +128,7 @@ fn run_camera(
 	error: &StdMutex<Option<String>>,
 ) {
 	let format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::HighestResolution(
-		Resolution::new(CAMERA_MAX_WIDTH, CAMERA_MAX_WIDTH * 9 / 16),
+		Resolution::new(CAMERA_WIDTH, CAMERA_HEIGHT),
 	));
 	let mut camera = match Camera::new(CameraIndex::Index(0), format)
 		.and_then(|mut camera| camera.open_stream().map(|_| camera))
@@ -143,7 +160,7 @@ fn run_camera(
 	let _ = camera.stop_stream();
 }
 
-/// A 640x360 pattern with a bright disc that moves, to exercise the camera path headless.
+/// A moving disc on a gradient, to exercise the camera path without a device.
 fn camera_test_pattern(counter: u64) -> RgbaImage {
 	let (w, h) = (640u32, 360u32);
 	let cx = (counter as f32 * 9.0) % w as f32;

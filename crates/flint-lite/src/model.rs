@@ -176,4 +176,6 @@ pub enum Ev {
 	},
 	/// The camera turned on or off because it stopped working.
 	Camera(bool),
+	/// A peer's camera stopped sending video.
+	CameraOff(String),
 }

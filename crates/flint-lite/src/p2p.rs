@@ -12,7 +12,7 @@ use std::{
 	collections::HashMap,
 	sync::{
 		Arc, Mutex as StdMutex,
-		atomic::{AtomicBool, Ordering},
+		atomic::{AtomicBool, AtomicU32, Ordering},
 	},
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -26,7 +26,7 @@ use tokio::{
 use webrtc::{
 	api::{
 		API, APIBuilder,
-		media_engine::{MIME_TYPE_OPUS, MediaEngine},
+		media_engine::{MIME_TYPE_H264, MIME_TYPE_OPUS, MediaEngine},
 	},
 	data_channel::{RTCDataChannel, data_channel_message::DataChannelMessage},
 	ice_transport::{ice_candidate::RTCIceCandidateInit, ice_server::RTCIceServer},
@@ -36,7 +36,12 @@ use webrtc::{
 		peer_connection_state::RTCPeerConnectionState,
 		sdp::session_description::RTCSessionDescription,
 	},
-	rtp_transceiver::rtp_codec::RTCRtpCodecCapability,
+	rtcp,
+	rtp::{codecs::h264::H264Packet, packetizer::Depacketizer},
+	rtp_transceiver::{
+		rtp_codec::{RTCRtpCodecCapability, RTPCodecType},
+		rtp_sender::RTCRtpSender,
+	},
 	track::{
 		track_local::{TrackLocal, track_local_static_sample::TrackLocalStaticSample},
 		track_remote::TrackRemote,
@@ -46,17 +51,22 @@ use webrtc::{
 use crate::{
 	capture::{self, Source},
 	model::Ev,
+	video::{VideoDecoder, VideoEncoder},
 	voice::{self, AudioSource, Mixer},
 };
 
 pub const SCREEN_CHANNEL: &str = "screen";
-pub const CAMERA_CHANNEL: &str = "camera";
 const CHUNK: usize = 16 * 1024;
 /// Frames are dropped for a viewer whose send buffer is this full, so a slow link lags instead of queueing.
 const MAX_BUFFERED: usize = 4 * 1024 * 1024;
 const FRAME_INTERVAL: Duration = Duration::from_millis(125);
-/// Camera runs at about 15 frames per second.
-const CAMERA_INTERVAL: Duration = Duration::from_millis(66);
+/// Camera video: 720p at 30 frames per second, H.264 at 1.5 Mbit/s to start.
+const CAMERA_FPS: f32 = 30.0;
+const CAMERA_BITRATE: u32 = 1_500_000;
+const CAMERA_MIN_BITRATE: u32 = 300_000;
+const CAMERA_MAX_BITRATE: u32 = 2_500_000;
+/// A camera track with no packets for this long means the peer turned the camera off.
+const CAMERA_QUIET: Duration = Duration::from_secs(2);
 /// Report progress to the UI every this many decoded voice frames (one second).
 const VOICE_REPORT_EVERY: u64 = 50;
 /// How long a ring lasts before it is declined or cancelled.
@@ -88,6 +98,13 @@ struct Frame {
 	jpeg: Arc<Vec<u8>>,
 }
 
+/// One camera frame before encoding.
+#[derive(Clone)]
+struct RawFrame {
+	seq: u64,
+	rgba: Arc<Vec<u8>>,
+}
+
 struct Peer {
 	call_id: String,
 	pc: Arc<RTCPeerConnection>,
@@ -99,6 +116,7 @@ struct Peer {
 	/// The ring is on a connection that already carries a share, so timing out keeps it.
 	renegotiating: bool,
 	audio: Arc<TrackLocalStaticSample>,
+	video: Arc<TrackLocalStaticSample>,
 }
 
 struct Inner {
@@ -110,8 +128,12 @@ struct Inner {
 	frames: watch::Sender<Option<Frame>>,
 	source: Source,
 	capture: StdMutex<Option<JoinHandle<()>>>,
-	camera_frames: watch::Sender<Option<Frame>>,
+	camera_frames: watch::Sender<Option<RawFrame>>,
 	camera_on: AtomicBool,
+	/// The next camera frame must be a keyframe (a viewer just joined or the camera just started).
+	camera_key: AtomicBool,
+	/// Target camera bitrate, moved by the receivers' loss reports.
+	camera_bitrate: AtomicU32,
 	camera_capture: StdMutex<Option<JoinHandle<()>>>,
 	in_call: AtomicBool,
 	muted: AtomicBool,
@@ -166,6 +188,8 @@ impl P2p {
 			capture: StdMutex::new(None),
 			camera_frames,
 			camera_on: AtomicBool::new(false),
+			camera_key: AtomicBool::new(false),
+			camera_bitrate: AtomicU32::new(CAMERA_BITRATE),
 			camera_capture: StdMutex::new(None),
 			in_call: AtomicBool::new(false),
 			muted: AtomicBool::new(false),
@@ -183,6 +207,7 @@ impl P2p {
 			voice::start_speaker(mixer, on_error);
 		}
 		tokio::spawn(voice_sender(inner.clone(), mic_rx));
+		tokio::spawn(video_sender(inner.clone()));
 		Self { inner }
 	}
 
@@ -230,6 +255,7 @@ impl P2p {
 	pub fn set_camera(&self, on: bool) {
 		self.inner.camera_on.store(on, Ordering::SeqCst);
 		if on {
+			self.inner.camera_key.store(true, Ordering::SeqCst);
 			self.ensure_camera_capture();
 		} else {
 			self.inner.camera_frames.send_replace(None);
@@ -367,7 +393,7 @@ impl P2p {
 				continue;
 			}
 			let call_id = new_call_id();
-			let (pc, audio) = self.new_pc(&peer).await?;
+			let (pc, audio, video) = self.new_pc(&peer).await?;
 			let alive = Arc::new(AtomicBool::new(true));
 			let dc = pc
 				.create_data_channel(SCREEN_CHANNEL, None)
@@ -379,30 +405,7 @@ impl P2p {
 				let alive_open = alive.clone();
 				dc.on_open(Box::new(move || {
 					Box::pin(async move {
-						tokio::spawn(send_frames(dc_open, rx, alive_open, None));
-					})
-				}));
-			}
-			// The camera channel is created with every connection, so a camera can start later
-			// without renegotiating. Its frames only flow to peers who have joined the call.
-			let camera_dc = pc
-				.create_data_channel(CAMERA_CHANNEL, None)
-				.await
-				.map_err(s)?;
-			{
-				let crx = self.inner.camera_frames.subscribe();
-				let dc_open = camera_dc.clone();
-				let alive_open = alive.clone();
-				let inner = self.inner.clone();
-				let peer_id = peer.clone();
-				camera_dc.on_open(Box::new(move || {
-					Box::pin(async move {
-						tokio::spawn(send_frames(
-							dc_open,
-							crx,
-							alive_open,
-							Some((inner, peer_id)),
-						));
+						tokio::spawn(send_frames(dc_open, rx, alive_open));
 					})
 				}));
 			}
@@ -426,6 +429,7 @@ impl P2p {
 					joined: voice,
 					renegotiating: false,
 					audio,
+					video,
 				},
 			);
 			if voice {
@@ -450,7 +454,7 @@ impl P2p {
 		voice: bool,
 	) -> Result<(), String> {
 		self.drop_peer(&from).await;
-		let (pc, audio) = self.new_pc(&from).await?;
+		let (pc, audio, video) = self.new_pc(&from).await?;
 		let alive = Arc::new(AtomicBool::new(true));
 		self.attach_receiver(from.clone(), &pc);
 		pc.on_peer_connection_state_change(self.state_handler(from.clone(), call_id.clone()));
@@ -476,6 +480,7 @@ impl P2p {
 				joined: voice,
 				renegotiating: false,
 				audio,
+				video,
 			},
 		);
 		let _ = self.inner.out.send(OutSignal {
@@ -683,7 +688,14 @@ impl P2p {
 	async fn new_pc(
 		&self,
 		peer: &str,
-	) -> Result<(Arc<RTCPeerConnection>, Arc<TrackLocalStaticSample>), String> {
+	) -> Result<
+		(
+			Arc<RTCPeerConnection>,
+			Arc<TrackLocalStaticSample>,
+			Arc<TrackLocalStaticSample>,
+		),
+		String,
+	> {
 		let config = RTCConfiguration {
 			ice_servers: self.inner.ice.lock().await.clone(),
 			..Default::default()
@@ -709,8 +721,25 @@ impl P2p {
 		pc.add_track(audio.clone() as Arc<dyn TrackLocal + Send + Sync>)
 			.await
 			.map_err(s)?;
+		let video = Arc::new(TrackLocalStaticSample::new(
+			RTCRtpCodecCapability {
+				mime_type: MIME_TYPE_H264.to_owned(),
+				clock_rate: 90000,
+				sdp_fmtp_line:
+					"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f"
+						.to_owned(),
+				..Default::default()
+			},
+			"camera".to_owned(),
+			"flint-lite".to_owned(),
+		));
+		let video_rtp = pc
+			.add_track(video.clone() as Arc<dyn TrackLocal + Send + Sync>)
+			.await
+			.map_err(s)?;
+		tokio::spawn(watch_camera_feedback(video_rtp, self.inner.clone()));
 		self.attach_playback(peer.to_string(), &pc);
-		Ok((pc, audio))
+		Ok((pc, audio, video))
 	}
 
 	/// Decode the peer's audio track into the speaker mixer.
@@ -720,7 +749,13 @@ impl P2p {
 			move |track: Arc<TrackRemote>, _receiver, _transceiver| {
 				let inner = inner.clone();
 				let peer = peer.clone();
-				Box::pin(async move {
+				// webrtc-rs runs the handler under a lock until it returns, so the reading
+				// loops run on their own task to let the next track (video) be handled.
+				tokio::spawn(async move {
+					if track.kind() == RTPCodecType::Video {
+						receive_video(track, peer, inner.emit.clone()).await;
+						return;
+					}
 					let Ok(mut decoder) = voice::new_decoder() else {
 						return;
 					};
@@ -739,7 +774,8 @@ impl P2p {
 						}
 					}
 					inner.mixer.remove(&peer);
-				})
+				});
+				Box::pin(async {})
 			},
 		));
 	}
@@ -750,7 +786,6 @@ impl P2p {
 		pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
 			let emit = emit.clone();
 			let from = from.clone();
-			let camera = dc.label() == CAMERA_CHANNEL;
 			Box::pin(async move {
 				let assembly = Arc::new(StdMutex::new(Assembly::default()));
 				dc.on_message(Box::new(move |msg: DataChannelMessage| {
@@ -767,7 +802,7 @@ impl P2p {
 								match capture::decode_jpeg(&jpeg) {
 									Ok((width, height, rgba)) => emit(Ev::Frame {
 										from,
-										camera,
+										camera: false,
 										width,
 										height,
 										rgba,
@@ -890,19 +925,19 @@ impl P2p {
 		*slot = Some(tokio::spawn(async move {
 			let source = inner.source;
 			let mut counter = 0u64;
-			let mut tick = tokio::time::interval(CAMERA_INTERVAL);
+			let mut tick = tokio::time::interval(Duration::from_secs_f32(1.0 / CAMERA_FPS));
 			tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 			while inner.camera_on.load(Ordering::SeqCst) {
 				tick.tick().await;
 				counter += 1;
 				let c = counter;
-				match tokio::task::spawn_blocking(move || capture::grab_camera_jpeg(source, c))
+				match tokio::task::spawn_blocking(move || capture::grab_camera_frame(source, c))
 					.await
 				{
-					Ok(Ok(Some(jpeg))) => {
-						inner.camera_frames.send_replace(Some(Frame {
+					Ok(Ok(Some(image))) => {
+						inner.camera_frames.send_replace(Some(RawFrame {
 							seq: c,
-							jpeg: Arc::new(jpeg),
+							rgba: Arc::new(image.into_raw()),
 						}));
 					}
 					Ok(Ok(None)) => {}
@@ -1021,12 +1056,163 @@ async fn voice_sender(inner: Arc<Inner>, mut mic: tokio::sync::mpsc::UnboundedRe
 }
 
 /// Send each new frame to one viewer until the peer is dropped.
-/// Send each new frame on `dc`. With `gate`, frames go only while that peer has joined the call.
+/// Read receiver reports for one camera sender and move the camera bitrate: down when peers
+/// lose packets, back up slowly when the link is clean.
+async fn watch_camera_feedback(sender: Arc<RTCRtpSender>, inner: Arc<Inner>) {
+	while let Ok((packets, _)) = sender.read_rtcp().await {
+		for packet in packets {
+			let Some(report) = packet
+				.as_any()
+				.downcast_ref::<rtcp::receiver_report::ReceiverReport>()
+			else {
+				continue;
+			};
+			let worst = report
+				.reports
+				.iter()
+				.map(|r| r.fraction_lost)
+				.max()
+				.unwrap_or(0);
+			let current = inner.camera_bitrate.load(Ordering::SeqCst);
+			// fraction_lost counts 1/256ths: about 5% and 2% loss.
+			let next = if worst > 13 {
+				current / 10 * 7
+			} else if worst < 5 {
+				current / 10 * 11
+			} else {
+				current
+			};
+			inner.camera_bitrate.store(
+				next.clamp(CAMERA_MIN_BITRATE, CAMERA_MAX_BITRATE),
+				Ordering::SeqCst,
+			);
+		}
+	}
+}
+
+/// Encode the camera once and write each access unit to every peer who has joined the call.
+async fn video_sender(inner: Arc<Inner>) {
+	let mut rx = inner.camera_frames.subscribe();
+	let mut encoder: Option<VideoEncoder> = None;
+	let mut last = 0u64;
+	while rx.changed().await.is_ok() {
+		let frame = rx.borrow_and_update().clone();
+		let Some(frame) = frame else {
+			// The camera is off: release the encoder until it starts again.
+			encoder = None;
+			continue;
+		};
+		if frame.seq == last || !inner.camera_on.load(Ordering::SeqCst) {
+			continue;
+		}
+		last = frame.seq;
+		let key = inner.camera_key.swap(false, Ordering::SeqCst);
+		let target = inner.camera_bitrate.load(Ordering::SeqCst);
+		let mut enc = match encoder.take() {
+			Some(mut enc) => {
+				let _ = enc.set_bitrate(target);
+				enc
+			}
+			None => match VideoEncoder::new(
+				capture::CAMERA_WIDTH,
+				capture::CAMERA_HEIGHT,
+				CAMERA_FPS,
+				target,
+			) {
+				Ok(enc) => enc,
+				Err(e) => {
+					(inner.emit)(Ev::Notice(e));
+					inner.camera_on.store(false, Ordering::SeqCst);
+					(inner.emit)(Ev::Camera(false));
+					continue;
+				}
+			},
+		};
+		let (enc, result) = tokio::task::spawn_blocking(move || {
+			if key {
+				enc.force_keyframe();
+			}
+			let result = enc.encode(&frame.rgba);
+			(enc, result)
+		})
+		.await
+		.unwrap_or_else(|_| unreachable!("encode task panicked"));
+		encoder = Some(enc);
+		let Ok(access_unit) = result else {
+			continue;
+		};
+		let tracks: Vec<Arc<TrackLocalStaticSample>> = inner
+			.peers
+			.lock()
+			.await
+			.values()
+			.filter(|p| p.joined && !p.ringing)
+			.map(|p| p.video.clone())
+			.collect();
+		let data = Bytes::from(access_unit);
+		for track in tracks {
+			let sample = Sample {
+				data: data.clone(),
+				duration: Duration::from_secs_f32(1.0 / CAMERA_FPS),
+				..Default::default()
+			};
+			let _ = track.write_sample(&sample).await;
+		}
+	}
+}
+
+/// Decode one peer's camera track into frames for the UI. A track with no packets for
+/// `CAMERA_QUIET` means the peer turned the camera off.
+async fn receive_video(track: Arc<TrackRemote>, peer: String, emit: Emit) {
+	let Ok(mut decoder) = VideoDecoder::new() else {
+		return;
+	};
+	let mut depacketizer = H264Packet::default();
+	let mut access_unit: Vec<u8> = Vec::new();
+	loop {
+		let packet = match tokio::time::timeout(CAMERA_QUIET, track.read_rtp()).await {
+			Err(_) => {
+				emit(Ev::CameraOff(peer.clone()));
+				continue;
+			}
+			Ok(Err(_)) => break,
+			Ok(Ok((packet, _))) => packet,
+		};
+		if let Ok(nals) = depacketizer.depacketize(&packet.payload) {
+			access_unit.extend_from_slice(&nals);
+		}
+		if !packet.header.marker || access_unit.is_empty() {
+			continue;
+		}
+		let unit = std::mem::take(&mut access_unit);
+		let (dec, result) = match tokio::task::spawn_blocking(move || {
+			let result = decoder.decode(&unit);
+			(decoder, result)
+		})
+		.await
+		{
+			Ok(pair) => pair,
+			Err(_) => break,
+		};
+		decoder = dec;
+		if let Ok(Some((width, height, rgba))) = result {
+			emit(Ev::Frame {
+				from: peer.clone(),
+				camera: true,
+				width,
+				height,
+				rgba,
+			});
+		}
+	}
+	emit(Ev::CameraOff(peer));
+}
+
+/// Send each new screen frame on `dc` to one viewer until the connection closes.
 async fn send_frames(
 	dc: Arc<RTCDataChannel>,
 	mut rx: watch::Receiver<Option<Frame>>,
 	alive: Arc<AtomicBool>,
-	gate: Option<(Arc<Inner>, String)>,
 ) {
 	let mut last = 0u64;
 	while alive.load(Ordering::SeqCst) {
@@ -1041,12 +1227,6 @@ async fn send_frames(
 			continue;
 		}
 		last = frame.seq;
-		if let Some((inner, peer)) = &gate {
-			let joined = inner.peers.lock().await.get(peer).is_some_and(|p| p.joined);
-			if !joined {
-				continue;
-			}
-		}
 		if dc.buffered_amount().await > MAX_BUFFERED {
 			continue;
 		}
@@ -1333,7 +1513,7 @@ mod ring_tests {
 		})
 		.await
 		.unwrap();
-		assert_eq!(got, Some(("a".to_string(), 640, 360)));
+		assert_eq!(got, Some(("a".to_string(), 1280, 720)));
 		a.set_camera(false);
 		let _ = a_ev;
 		a.leave_call().await;
