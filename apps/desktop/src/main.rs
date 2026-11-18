@@ -56,7 +56,6 @@ mod server_settings_demo;
 mod sign_in;
 #[cfg(feature = "demo")]
 mod slash_demo;
-mod spotify;
 mod startup;
 mod sticker_upload;
 mod toggle_setting;
@@ -217,15 +216,6 @@ fn main() -> eframe::Result {
 		}
 		state.permissions.replace(permissions).unwrap();
 		ui::debug_channel_creation(state);
-		return Ok(());
-	}
-	#[cfg(all(debug_assertions, feature = "demo"))]
-	if std::env::args().any(|arg| arg == "--demo")
-		&& std::env::args().any(|arg| arg == "--demo-check-spotify")
-	{
-		spotify::debug_check();
-		discord_api::spotify::debug_check();
-		discord_gateway::debug_spotify_check();
 		return Ok(());
 	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
@@ -3621,16 +3611,6 @@ impl Desktop {
 			.as_millis()
 			.min(u128::from(u64::MAX)) as u64;
 		self.registered_games.record(&mut self.messaging, now_ms);
-		// Keep the existing game preview; Spotify fills the activity card while no game is active.
-		if own_activity.is_none() && self.state.gateway_connected {
-			own_activity = self.connection.as_ref().and_then(|connection| {
-				connection
-					.spotify_activity
-					.borrow()
-					.as_ref()
-					.map(|activity| activity.display())
-			});
-		}
 		let changed = self.state.set_local_game_activity(own_activity);
 		if changed
 			|| previous_sharing
