@@ -11,12 +11,12 @@ use std::sync::{
 	any(target_os = "windows", target_os = "linux"),
 	not(feature = "development-data")
 ))]
-const NAME: &str = "cz.viceverse.serein";
+const NAME: &str = "dev.atrello.flint";
 #[cfg(all(
 	any(target_os = "windows", target_os = "linux"),
 	feature = "development-data"
 ))]
-const NAME: &str = "cz.viceverse.serein.development";
+const NAME: &str = "dev.atrello.flint.development";
 
 pub enum Launch {
 	Primary(Instance),
@@ -168,7 +168,7 @@ mod win {
 		}
 		pub fn listen(self, request: impl Fn() + Send + 'static) {
 			let _ = std::thread::Builder::new()
-				.name("serein-instance".into())
+				.name("flint-instance".into())
 				.spawn(move || {
 					while self.wait() {
 						request();
@@ -241,7 +241,7 @@ mod linux {
 
 	pub fn listen(listener: UnixListener, request: impl Fn() + Send + 'static) {
 		let _ = std::thread::Builder::new()
-			.name("serein-instance".into())
+			.name("flint-instance".into())
 			.spawn(move || {
 				// Connections carry no data; accepting one is the request.
 				for stream in listener.incoming() {
@@ -260,8 +260,7 @@ mod linux {
 		fn a_released_claim_stops_taking_launches_but_keeps_a_newer_socket() {
 			let mut random = [0_u8; 8];
 			getrandom::fill(&mut random).unwrap();
-			let root =
-				std::env::temp_dir().join(format!("serein-{:x}", u64::from_le_bytes(random)));
+			let root = std::env::temp_dir().join(format!("flint-{:x}", u64::from_le_bytes(random)));
 			std::fs::create_dir(&root).unwrap();
 			let path = root.join("instance.sock");
 			// A process stuck in shutdown keeps its listener open without accepting; the
@@ -303,7 +302,7 @@ mod macos {
 		// SAFETY: NSObject has no subclassing requirements. The handler stays on the main
 		// thread and is retained until it is unregistered on drop.
 		#[unsafe(super = NSObject)]
-		#[name = "SereinReopenHandler"]
+		#[name = "FlintReopenHandler"]
 		#[thread_kind = MainThreadOnly]
 		#[ivars = State]
 		struct Handler;

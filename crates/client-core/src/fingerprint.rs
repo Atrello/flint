@@ -2,7 +2,7 @@
 //!
 //! Observed (unofficial): Discord's web client sends a super-properties payload, a browser
 //! user agent, locale and timezone on REST and the Gateway. How the service weighs any of
-//! them is unverified; an earlier Serein identity without them coincided with account
+//! them is unverified; an earlier Flint identity without them coincided with account
 //! restrictions (spam flag, attachment limits), which is not proof of cause. Every transport
 //! uses the desktop metadata below. Embedded verification keeps its engine-specific identity.
 //! Locale and timezone come from the operating system. Host versions are observed
@@ -30,7 +30,6 @@ fn desktop_version() -> &'static str {
 /// Retained paired engine baseline: the pinned wreq-util has no Chromium 152 profile.
 /// The downloaded Linux core declares Electron 44.9.3, so this is not a current runtime claim.
 const ELECTRON_VERSION: &str = "42.7.1";
-const DESKTOP_CHROMIUM_VERSION: &str = "148.0.7778.280";
 const WEBKIT: bool = !cfg!(windows);
 
 /// Discord's spelling of the host operating system.
@@ -61,13 +60,9 @@ pub fn browser_version() -> String {
 	ELECTRON_VERSION.to_owned()
 }
 
-/// Desktop transport identity; this does not change the native UI into Electron.
+/// Honest client identity: Flint and its version. No browser or Electron emulation.
 pub fn user_agent() -> String {
-	format!(
-		"Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) discord/{} Chrome/{DESKTOP_CHROMIUM_VERSION} Electron/{ELECTRON_VERSION} Safari/537.36",
-		platform_token(),
-		desktop_version()
-	)
+	format!("Flint/{}", env!("CARGO_PKG_VERSION"))
 }
 
 /// Identity for the actual embedded verification engine, independent of REST.
@@ -138,7 +133,7 @@ static INSTALLATION: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(
 
 /// Discord's installation ID for this device, sent as `X-Installation-ID` on REST and as
 /// `installation_id` in the Gateway identify (unofficial, observed in SakuraCord's desktop
-/// metadata). Serein never makes one up; without one, both are left out.
+/// metadata). Flint never makes one up; without one, both are left out.
 pub fn installation_id() -> Option<String> {
 	INSTALLATION.read().ok()?.clone()
 }

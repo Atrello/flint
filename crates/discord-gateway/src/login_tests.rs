@@ -55,7 +55,7 @@ async fn login_metadata(
 			let mut initial = json!({"op":0,"t":"READY","s":1,"d":{
 				"user":{"id":"1","username":"Synthetic owner"},
 				"session_id":"synthetic-large-login",
-				"resume_gateway_url":"wss://gateway.discord.gg/",
+				"resume_gateway_url":"wss://chat.example.com/gateway",
 				"users":users,"guilds":guilds,"private_channels":[]
 			}});
 			initial["d"]
@@ -95,7 +95,7 @@ async fn login_metadata(
 			Arc::new(
 				SessionSecret::from_owner_input("synthetic-large-login-secret".into()).unwrap(),
 			),
-			"wss://gateway.discord.gg/".into(),
+			"wss://chat.example.com/gateway".into(),
 			watch::channel(None).1,
 			mpsc::channel(1).1,
 			None,
@@ -284,7 +284,7 @@ async fn oversized_frames_stop_login_during_and_after_hello() {
 				Arc::new(
 					SessionSecret::from_owner_input("synthetic-frame-limit-secret".into()).unwrap(),
 				),
-				"wss://gateway.discord.gg/".into(),
+				"wss://chat.example.com/gateway".into(),
 				watch::channel(None).1,
 				mpsc::channel(1).1,
 				None,
@@ -336,7 +336,7 @@ async fn invalid_owner_identity_or_session_never_emits_startup() {
 				assert_eq!(packet(&mut socket).await["op"], 2);
 				let mut payload = json!({"op":0,"t":"READY","s":1,"d":{
 					"user":{"id":"1","username":"Synthetic"},"session_id":"synthetic",
-					"resume_gateway_url":"wss://gateway.discord.gg/"}});
+					"resume_gateway_url":"wss://chat.example.com/gateway"}});
 				if field == "username" {
 					payload["d"]["user"][field] = json!(value);
 				} else {
@@ -349,7 +349,7 @@ async fn invalid_owner_identity_or_session_never_emits_startup() {
 				Arc::new(
 					SessionSecret::from_owner_input("synthetic-identity-test".into()).unwrap(),
 				),
-				"wss://gateway.discord.gg/".into(),
+				"wss://chat.example.com/gateway".into(),
 				watch::channel(None).1,
 				mpsc::channel(1).1,
 				None,

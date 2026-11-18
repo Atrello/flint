@@ -3,6 +3,7 @@
 mod activity_sharing;
 mod admission;
 mod archives;
+pub mod auth;
 mod badges;
 mod channel_actions;
 mod collectibles;
@@ -60,7 +61,6 @@ const FOREGROUND_PERMITS: usize = 2;
 const READ_RATE_LIMIT_RETRIES: u8 = 2;
 /// Longer JSON limits fail the read at once, so sign-in never stalls silently.
 const MAX_READ_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
-const API_ORIGIN: &str = "https://discord.com/api/v10";
 /// One thread channel, or one message, stays far below this documented read budget.
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
 
@@ -101,8 +101,12 @@ fn route_label(method: &Method, path: &str) -> Box<str> {
 }
 
 /// The one REST origin. A block or rate limit never moves requests to another host.
+/// The configured Steel REST base, `{server}/api/v10`. Set by `model::endpoints::configure`.
 pub fn api_v10_base() -> &'static str {
-	API_ORIGIN
+	// Compiled out of shipped builds: tests run against one fixed stand-in server.
+	#[cfg(test)]
+	let _ = model::endpoints::configure("https://chat.example.com");
+	model::endpoints::get().api_origin.as_str()
 }
 
 pub struct DiscordApi {
@@ -142,8 +146,6 @@ struct Extras<'a> {
 	retry: Option<&'a client_core::captcha::Retry>,
 	/// Where a challenge the user can solve is reported instead of ending the session.
 	challenge: Option<&'a mut Option<client_core::captcha::Challenge>>,
-	/// Sent as `X-Context-Properties` on a message create.
-	context: Option<client_core::fingerprint::MessageContext>,
 	/// Builds the JSON body after cooldown and route admission.
 	prepare: Option<&'a mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send)>,
 	/// A rejected token returns `Expired` without ending the session; the Gateway decides.
@@ -166,12 +168,8 @@ fn stream_preview_url(bytes: &[u8], key: &str) -> Result<String, Failure> {
 		url: String,
 	}
 	let url = decode::<Preview>(bytes).map_err(|_| Failure::Protocol)?.url;
-	let path = [
-		format!("https://cdn.discordapp.com/streams/{key}/"),
-		format!("https://media.discordapp.net/streams/{key}/"),
-	]
-	.into_iter()
-	.find_map(|prefix| url.strip_prefix(&prefix));
+	let prefix = format!("{}/streams/{key}/", model::endpoints::get().origin);
+	let path = url.strip_prefix(&prefix);
 	let Some(path) = path else {
 		return Err(Failure::Protocol);
 	};
@@ -245,63 +243,19 @@ async fn error_code(response: wreq::Response) -> Option<u64> {
 	}
 	decode::<ErrorBody>(&bytes).ok()?.code
 }
-/// Headers the web client was observed sending on every REST call (unofficial). How the
-/// service weighs them is unverified. Locale and timezone are the operating system's.
-fn fingerprint_headers() -> Result<wreq::header::HeaderMap, Failure> {
+/// The only default headers Flint sends on REST calls: what the server needs, nothing that
+/// imitates a browser or reports the machine's locale, timezone or client build.
+fn request_headers() -> wreq::header::HeaderMap {
 	let mut headers = wreq::header::HeaderMap::new();
 	headers.insert(
-		"x-super-properties",
-		HeaderValue::from_str(&client_core::fingerprint::super_properties())
-			.map_err(|_| Failure::Network)?,
+		wreq::header::ACCEPT,
+		HeaderValue::from_static("application/json, */*"),
 	);
-	headers.insert(
-		"x-discord-locale",
-		HeaderValue::from_static(client_core::fingerprint::discord_locale()),
-	);
-	headers.insert(
-		"x-discord-timezone",
-		HeaderValue::from_str(client_core::fingerprint::timezone())
-			.map_err(|_| Failure::Network)?,
-	);
-	headers.insert(
-		wreq::header::ACCEPT_LANGUAGE,
-		HeaderValue::from_str(client_core::fingerprint::accept_language())
-			.map_err(|_| Failure::Network)?,
-	);
-	headers.insert(
-		wreq::header::REFERER,
-		HeaderValue::from_static("https://discord.com/channels/@me"),
-	);
-	headers.insert(wreq::header::ACCEPT, HeaderValue::from_static("*/*"));
-	headers.insert(
-		wreq::header::ACCEPT_ENCODING,
-		HeaderValue::from_static(client_core::fingerprint::accept_encoding()),
-	);
-	headers.insert(
-		"x-debug-options",
-		HeaderValue::from_static("bugReporterEnabled"),
-	);
-	// Same-origin fetch() metadata; the emulation's own headers describe a page navigation.
-	headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
-	headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
-	headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
-	if let Some(hints) = client_core::fingerprint::client_hints() {
-		for (name, value) in hints {
-			headers.insert(
-				name,
-				HeaderValue::from_str(&value).map_err(|_| Failure::Network)?,
-			);
-		}
-		headers.insert("priority", HeaderValue::from_static("u=1, i"));
-	}
-	Ok(headers)
+	headers
 }
-/// Applies the advertised browser's TLS and HTTP/2 handshake and its user agent. Emulation
-/// resets TLS/HTTP options, so this must wrap the builder before any other option is set.
+/// Flint's own identity on the wire. No browser TLS or HTTP/2 emulation is applied.
 pub(crate) fn browser_transport(builder: wreq::ClientBuilder) -> wreq::ClientBuilder {
-	builder
-		.emulation(client_core::fingerprint::emulation())
-		.user_agent(client_core::fingerprint::user_agent())
+	builder.user_agent(client_core::fingerprint::user_agent())
 }
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 	let builder = browser_transport(Client::builder())
@@ -310,7 +264,7 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 		.retry(wreq::retry::Policy::never())
 		.timeout(Duration::from_secs(20))
 		.connect_timeout(Duration::from_secs(10))
-		.default_headers(fingerprint_headers()?)
+		.default_headers(request_headers())
 		.cookie_provider(device::store().clone());
 	route
 		.client_builder(builder)
@@ -354,67 +308,12 @@ impl DiscordApi {
 			expiry: ExpirySlot::default(),
 			catalog: std::sync::Mutex::default(),
 			#[cfg(test)]
-			base: API_ORIGIN.into(),
+			base: "http://127.0.0.1:0/api/v10".into(),
 			#[cfg(test)]
 			upload_origin: None,
 			#[cfg(test)]
 			timeout_clock: std::sync::Mutex::new(None),
 		})
-	}
-	/// Asks Discord once for this device's installation ID and keeps it, before the Gateway
-	/// identifies. Unofficial: SakuraCord's desktop sign-in reads it from an unauthenticated
-	/// `GET /apex/experiments?surface=2`. Best effort and bounded; Serein works without it.
-	pub async fn ensure_installation(&self) {
-		#[derive(serde::Deserialize)]
-		struct Apex {
-			installation: String,
-		}
-		// One attempt per process: a reconnect must not wait on an endpoint that gave no ID.
-		static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-		// Without a route yet the request could only wait; a later connection asks instead.
-		if client_core::fingerprint::installation_id().is_some()
-			|| self.proxy.lock().await.receiver.borrow().is_none()
-			|| ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
-		{
-			return;
-		}
-		#[cfg(not(test))]
-		let base = API_ORIGIN;
-		#[cfg(test)]
-		let base = self.base.as_str();
-		let fetch = async {
-			let response = self
-				.rest_client()
-				.await
-				.ok()?
-				.get(format!("{base}/apex/experiments?surface=2"))
-				.send()
-				.await
-				.ok()?;
-			if !response.status().is_success()
-				|| response
-					.content_length()
-					.is_some_and(|n| n > MAX_WIRE as u64)
-			{
-				return None;
-			}
-			let mut bytes = Vec::new();
-			let mut body = std::pin::pin!(response.bytes_stream());
-			while let Some(chunk) = futures_util::StreamExt::next(&mut body)
-				.await
-				.transpose()
-				.ok()?
-			{
-				if bytes.len() + chunk.len() > MAX_WIRE {
-					return None;
-				}
-				bytes.extend_from_slice(&chunk);
-			}
-			decode::<Apex>(&bytes).ok()
-		};
-		if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
-			device::set_installation(&apex.installation);
-		}
 	}
 	/// Credential-free client snapshot for Discord REST; authorization is added per request.
 	pub async fn rest_client(&self) -> Result<Client, Failure> {
@@ -636,7 +535,6 @@ impl DiscordApi {
 		&self,
 		channel: model::Id,
 		body: serde_json::Value,
-		context: client_core::fingerprint::MessageContext,
 		retry: Option<&client_core::captcha::Retry>,
 		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
 	) -> Result<model::Message, Failure> {
@@ -649,7 +547,6 @@ impl DiscordApi {
 				Extras {
 					retry,
 					challenge,
-					context: Some(context),
 					..Extras::default()
 				},
 			)
@@ -671,7 +568,6 @@ impl DiscordApi {
 		let Extras {
 			retry,
 			mut challenge,
-			context,
 			mut prepare,
 			advisory,
 		} = extras;
@@ -727,7 +623,7 @@ impl DiscordApi {
 				.map_err(|_| Failure::InvalidCredential)?;
 			authorization.set_sensitive(true);
 			#[cfg(not(test))]
-			let base = API_ORIGIN;
+			let base = api_v10_base();
 			// Loopback tests point at a stand-in server.
 			#[cfg(test)]
 			let base = self.base.as_str();
@@ -737,22 +633,6 @@ impl DiscordApi {
 				.await?
 				.request(method.clone(), format!("{base}{path}"))
 				.header(AUTHORIZATION, authorization);
-			if write {
-				request = request.header(wreq::header::ORIGIN, "https://discord.com");
-			}
-			if let Some(installation) = client_core::fingerprint::installation_id() {
-				request = request.header(
-					"x-installation-id",
-					HeaderValue::from_str(&installation).map_err(|_| Failure::Protocol)?,
-				);
-			}
-			if let Some(context) = context {
-				request = request.header(
-					"x-context-properties",
-					HeaderValue::from_str(&client_core::fingerprint::context_properties(context))
-						.map_err(|_| Failure::Protocol)?,
-				);
-			}
 			if let Some(retry) = retry {
 				if retry.expired() {
 					return Err(Failure::ProtocolAt(
@@ -898,7 +778,7 @@ impl DiscordApi {
 
 				if error.code == Some(40012) {
 					return Err(Failure::ProtocolAt(
-						"Discord revoked this connection; reconnect the linked service in the official client",
+						"The server revoked this connection; reconnect the linked service",
 					));
 				}
 
@@ -925,7 +805,7 @@ impl DiscordApi {
 							return Err(Failure::Challenged);
 						}
 						return Err(Failure::ProtocolAt(
-							"This verification is unavailable; complete the action in the official client",
+							"This verification is unavailable; the action cannot be completed here",
 						));
 					}
 					if !auth_challenge && write && challenge.is_none() {
@@ -933,7 +813,7 @@ impl DiscordApi {
 						// request). No solver is wired for this action, but it is not a session
 						// challenge: keep the connection and report a bounded local reason.
 						return Err(Failure::ProtocolAt(
-							"Discord requires verification for this action; complete it in the official client",
+							"Verification is required for this action; it cannot be completed here",
 						));
 					}
 
@@ -988,6 +868,12 @@ impl DiscordApi {
 					&& path.starts_with("/users/@me/notes/")
 				{
 					return Ok(br#"{"note":""}"#.to_vec());
+				}
+				// Payload too large: the server's per-file cap, not an unknown response.
+				if error.code == Some(40005) || status == StatusCode::PAYLOAD_TOO_LARGE {
+					return Err(Failure::ProtocolAt(
+						"The server does not accept a file this large; choose a smaller file",
+					));
 				}
 				if error.code == Some(160004) {
 					return Err(Failure::ProtocolAt(
@@ -1976,14 +1862,7 @@ impl DiscordApi {
 						"message_reference": reference,
 						"allowed_mentions": {"parse":[],"replied_user":false},
 					});
-					self.create_message(
-						channel,
-						body,
-						client_core::fingerprint::MessageContext::Forwarding,
-						None,
-						None,
-					)
-					.await
+					self.create_message(channel, body, None, None).await
 				};
 				Event::SendResult { nonce, result }
 			}
@@ -2458,14 +2337,7 @@ impl DiscordApi {
 			body["attachments"] = serde_json::json!(attachment);
 		}
 		// No enforce_nonce claim until normal-user semantics are live verified. Never auto-retry writes.
-		self.create_message(
-			channel,
-			body,
-			client_core::fingerprint::MessageContext::ChatInput,
-			retry,
-			challenge,
-		)
-		.await
+		self.create_message(channel, body, retry, challenge).await
 	}
 }
 impl DiscordApi {
@@ -2570,16 +2442,17 @@ fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 mod tests {
 	use super::*;
 	#[test]
-	fn stream_preview_accepts_only_the_requested_discord_cdn_path() {
+	fn stream_preview_accepts_only_the_requested_server_path() {
+		model::endpoints::configure("https://chat.example.com").unwrap();
 		let key = "guild:1:2:3";
 		let good =
-			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png"}"#;
+			br#"{"url":"https://chat.example.com/streams/guild:1:2:3/0123456789abcdef.png"}"#;
 		assert!(stream_preview_url(good, key).is_ok());
 		for bad in [
 			br#"{"url":"https://evil.example/streams/guild:1:2:3/0123456789abcdef.png"}"#
 				.as_slice(),
-			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:4/0123456789abcdef.png"}"#,
-			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png"}"#,
+			br#"{"url":"https://chat.example.com/streams/guild:1:2:4/0123456789abcdef.png"}"#,
+			br#"{"url":"https://chat.example.com/streams/guild:1:2:3/../token.png"}"#,
 		] {
 			assert_eq!(stream_preview_url(bad, key), Err(Failure::Protocol));
 		}
@@ -3930,7 +3803,6 @@ mod tests {
 		let (header, body) = server.await.unwrap();
 		assert!(header.starts_with("post /channels/2/messages http/1.1\r\n"));
 		// base64 of {"location":"forwarding"}
-		assert!(header.contains("x-context-properties: eyjsb2nhdglvbii6imzvcndhcmrpbmcifq==\r\n"));
 		assert_eq!(
 			body,
 			serde_json::json!({

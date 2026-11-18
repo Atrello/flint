@@ -793,9 +793,9 @@ fn cdn_url(key: &str) -> Option<String> {
 		return model::valid_avatar_hash(hash)
 			.then(|| format!("https://cdn.discordapp.com/icons/{id}/{hash}.png?size=128"));
 	}
-	if let Some(index) = key.strip_prefix("default-") {
-		return (index.len() == 1 && matches!(index.as_bytes()[0], b'0'..=b'5'))
-			.then(|| format!("https://cdn.discordapp.com/embed/avatars/{index}.png"));
+	// Default avatars are drawn locally with initials; Flint never fetches Discord's artwork.
+	if key.starts_with("default-") {
+		return None;
 	}
 	let (id, hash) = key.split_once('-')?;
 	let id: Id = id.parse().ok()?;
@@ -2504,17 +2504,17 @@ mod tests {
 
 	/// Run the emitted test executable directly under `/usr/bin/time -l`; use release
 	/// builds for timing comparisons. Fixture generation is excluded from peak RSS.
-	/// Set SEREIN_IMAGE_DECODE_FIXTURE to a prebuilt synthetic 4096x4096 RGBA PNG,
-	/// and SEREIN_IMAGE_DECODE_LEGACY=1 only for the original decoder comparison.
+	/// Set FLINT_IMAGE_DECODE_FIXTURE to a prebuilt synthetic 4096x4096 RGBA PNG,
+	/// and FLINT_IMAGE_DECODE_LEGACY=1 only for the original decoder comparison.
 	#[test]
 	#[ignore = "isolated large-image RSS workload; requires a prebuilt synthetic PNG fixture"]
 	fn image_decode_memory_workload() {
-		let path = std::env::var_os("SEREIN_IMAGE_DECODE_FIXTURE")
-			.expect("set SEREIN_IMAGE_DECODE_FIXTURE to a synthetic 4096x4096 RGBA PNG");
+		let path = std::env::var_os("FLINT_IMAGE_DECODE_FIXTURE")
+			.expect("set FLINT_IMAGE_DECODE_FIXTURE to a synthetic 4096x4096 RGBA PNG");
 		let bytes = fs::read(path).unwrap();
 		let budget =
 			budget("media:vs:4096x4096:https://cdn.discordapp.com/attachments/1/2/synthetic.png");
-		let legacy = std::env::var_os("SEREIN_IMAGE_DECODE_LEGACY").is_some();
+		let legacy = std::env::var_os("FLINT_IMAGE_DECODE_LEGACY").is_some();
 		let decode = if legacy { legacy_decode } else { decode };
 		let started = Instant::now();
 		let image = decode(&bytes, &budget).expect("synthetic image decodes");
@@ -2674,7 +2674,7 @@ mod tests {
 	async fn decoded_result_queue_workload() {
 		use std::future::Future;
 		// Explicit comparator reproduces the old item-only admission using the same results.
-		let legacy = std::env::var_os("SEREIN_IMAGE_QUEUE_LEGACY").is_some();
+		let legacy = std::env::var_os("FLINT_IMAGE_QUEUE_LEGACY").is_some();
 		let (sender, mut receive) = result_channel(egui::Context::default());
 		for _ in 0..128 {
 			let result = queued_image(1024);
@@ -2786,6 +2786,8 @@ mod tests {
 	}
 	#[test]
 	fn role_icon_urls_are_confined_to_the_role_cdn_path() {
+		#[cfg(test)]
+		let _ = model::endpoints::configure("https://chat.example.com");
 		assert_eq!(
 			super::cdn_url("role-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").as_deref(),
 			Some(
@@ -2842,7 +2844,7 @@ mod tests {
 			);
 			assert_eq!(
 				super::cdn_url("app-icon-7").as_deref(),
-				Some("https://discord.com/api/v10/applications/7/rpc")
+				Some("https://chat.example.com/api/v10/applications/7/rpc")
 			);
 			for key in [
 				"activity-0-8",
@@ -3052,7 +3054,7 @@ mod tests {
 			assert_eq!(partition(key), Media, "{key}");
 		}
 		let root = std::env::temp_dir().join(format!(
-			"serein-artwork-test-{}-{}",
+			"flint-artwork-test-{}-{}",
 			std::process::id(),
 			SystemTime::now()
 				.duration_since(SystemTime::UNIX_EPOCH)
@@ -3244,6 +3246,8 @@ mod tests {
 
 	#[test]
 	fn bounded_images_cache_reopen_eviction_and_cancelled_cleanup() {
+		#[cfg(test)]
+		let _ = model::endpoints::configure("https://chat.example.com");
 		assert!(cdn_url("../token").is_none());
 		assert_eq!(
 			cdn_url("banner-1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
@@ -3373,7 +3377,7 @@ mod tests {
 			[128, 128]
 		);
 		let root = std::env::temp_dir().join(format!(
-			"serein-avatar-test-{}-{}",
+			"flint-avatar-test-{}-{}",
 			std::process::id(),
 			SystemTime::now()
 				.duration_since(SystemTime::UNIX_EPOCH)
@@ -3383,7 +3387,7 @@ mod tests {
 		let account_a = root.join("1");
 		let account_b = root.join("2");
 		let mut disk = Disk::open(account_a.clone()).unwrap();
-		disk.write("default-0", &bytes).unwrap();
+		disk.write("emoji-5", &bytes).unwrap();
 		disk.write(embed_key, &bytes).unwrap();
 		disk.write("embed:sticker-7-3", &bytes).unwrap();
 		disk.write("app-icon-7", &bytes).unwrap();
@@ -3396,7 +3400,7 @@ mod tests {
 		}));
 		drop(disk);
 		let mut disk = Disk::open(account_a.clone()).unwrap();
-		assert_eq!(disk.reader().read("default-0").unwrap().unwrap(), bytes);
+		assert_eq!(disk.reader().read("emoji-5").unwrap().unwrap(), bytes);
 		assert_eq!(disk.reader().read(embed_key).unwrap().unwrap(), bytes);
 		assert_eq!(
 			disk.reader().read("embed:sticker-7-3").unwrap().unwrap(),
@@ -3407,7 +3411,7 @@ mod tests {
 			Disk::open(account_b.clone())
 				.unwrap()
 				.reader()
-				.read("default-0")
+				.read("emoji-5")
 				.unwrap()
 				.is_none()
 		);
@@ -3419,7 +3423,7 @@ mod tests {
 		sparse.set_len(MAX_DISK + 1).unwrap();
 		drop(sparse);
 		assert_eq!(Disk::open(account_b.clone()).unwrap().bytes, 0);
-		let old = account_a.join("default-0.png");
+		let old = account_a.join("emoji-5.png");
 		OpenOptions::new()
 			.write(true)
 			.open(old)
@@ -3427,7 +3431,7 @@ mod tests {
 			.set_modified(SystemTime::now() - RETENTION - Duration::from_secs(1))
 			.unwrap();
 		disk.prune(0, 0).unwrap();
-		assert!(disk.reader().read("default-0").unwrap().is_none());
+		assert!(disk.reader().read("emoji-5").unwrap().is_none());
 		fs::remove_file(account_a.join(format!("{}.png", disk_key(embed_key).unwrap()))).unwrap();
 		fs::remove_file(account_a.join(format!("{}.png", disk_key("embed:sticker-7-3").unwrap())))
 			.unwrap();
@@ -3442,21 +3446,21 @@ mod tests {
 		}
 		disk.prune(0, 0).unwrap();
 		assert_eq!(disk.files, MAX_FILES);
-		disk.write("default-0", &bytes).unwrap();
+		disk.write("emoji-5", &bytes).unwrap();
 		assert_eq!(disk.files, MAX_FILES);
 		drop(disk);
 		clear_directory(Some(&eviction)).unwrap();
 		assert!(!eviction.exists());
 		// A valid cached image keeps the shutdown fixture entirely offline and tiny.
 		let mut disk = Disk::open(account_a.clone()).unwrap();
-		disk.write("default-0", &bytes).unwrap();
+		disk.write("emoji-5", &bytes).unwrap();
 		assert_eq!(disk.files, 1);
 		drop(disk);
 		let runtime = tokio::runtime::Runtime::new().unwrap();
 		let mut worker =
 			AvatarWorker::start_at(&runtime, Some(account_a.clone()), egui::Context::default())
 				.unwrap();
-		assert!(worker.request("default-0".into()));
+		assert!(worker.request("emoji-5".into()));
 		let result = runtime.block_on(async {
 			tokio::time::timeout(Duration::from_secs(5), worker.results.recv())
 				.await
@@ -3467,7 +3471,7 @@ mod tests {
 		assert!(result.error.is_none());
 		// Fill the result channel, then cancel: shutdown must not wait on the renderer.
 		for _ in 0..32 {
-			assert!(worker.request("default-0".into()));
+			assert!(worker.request("emoji-5".into()));
 		}
 		runtime.block_on(async {
 			tokio::time::timeout(Duration::from_secs(5), async {

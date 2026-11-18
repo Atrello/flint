@@ -30,4 +30,4 @@ identity are untouched. The behavior is an original native adaptation of Equicor
 
 The pre-rebase implementation passed `cargo xtask check` with **1,659 passed, 0 failed, 14
 ignored**. The rebased branch passed `cargo check` for the affected crates and the focused
-`local-store`, `serein` and `ui` tests.
+`local-store`, `flint` and `ui` tests.

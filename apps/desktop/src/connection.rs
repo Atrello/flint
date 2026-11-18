@@ -308,8 +308,6 @@ impl Connection {
             };
             let result=async {
                 let api=DiscordApi::with_proxy(secret.clone(), api_proxy)?.reporting_expiry(api_expiry);
-                // The Gateway identify below carries the installation ID once Discord has issued one.
-                api.ensure_installation().await;
                 // Like the web client (unofficial), nothing asks REST who this is or where the
                 // Gateway lives: the address is fixed and READY names the account. A rejected
                 // token ends the session through Gateway close 4004, a bot through READY.
@@ -410,7 +408,7 @@ impl Connection {
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
                 let mut gateway_task=AbortTask(tokio::spawn(async move {
-                    let error=discord_gateway::run_with_activity_recovery(secret,discord_gateway::GATEWAY_URL.to_owned(),member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive,afk_receive),move |observation| {
+                    let error=discord_gateway::run_with_activity_recovery(secret,model::endpoints::get().gateway_url.clone(),member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive,afk_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },move |report| record_gateway_report(&report_slot, report),|event|{

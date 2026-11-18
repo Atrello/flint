@@ -1,9 +1,9 @@
 ---
-name: serein-sdk-wiki
-description: Synchronize Serein’s creator wiki for author-visible extension SDK or theme API changes, or an explicit wiki refresh.
+name: flint-sdk-wiki
+description: Synchronize Flint’s creator wiki for author-visible extension SDK or theme API changes, or an explicit wiki refresh.
 ---
 
-# Maintain the Serein SDK wiki
+# Maintain the Flint SDK wiki
 
 The creator wiki is `https://github.com/ViceVerse-cz/Serein/wiki`; its separate Git
 remote is `https://github.com/ViceVerse-cz/Serein.wiki.git`. The authoritative sources
@@ -47,8 +47,8 @@ and edits; use another clone if necessary.
 From the repository root (replace values with the current pushed revision/status):
 
 ```powershell
-python .agents/skills/serein-sdk-wiki/scripts/sync.py --source-ref <full-pushed-commit> --wiki-dir target/<wiki-clone> --status "Preview SDK — PR #<number>, not yet released"
-python .agents/skills/serein-sdk-wiki/scripts/sync.py --source-ref <full-pushed-commit> --wiki-dir target/<wiki-clone> --status "Preview SDK — PR #<number>, not yet released" --check
+python .agents/skills/flint-sdk-wiki/scripts/sync.py --source-ref <full-pushed-commit> --wiki-dir target/<wiki-clone> --status "Preview SDK — PR #<number>, not yet released"
+python .agents/skills/flint-sdk-wiki/scripts/sync.py --source-ref <full-pushed-commit> --wiki-dir target/<wiki-clone> --status "Preview SDK — PR #<number>, not yet released" --check
 git -C target/<wiki-clone> diff --check
 git -C target/<wiki-clone> diff --stat
 git -C target/<wiki-clone> diff
@@ -63,7 +63,7 @@ compares generated output without writing. It never fetches, commits or pushes.
 Review the pages as documentation, including navigation, examples, capability
 restrictions and preview status; generation alone does not establish accuracy.
 After changing the helper, run
-`python .agents/skills/serein-sdk-wiki/scripts/test_sync.py`.
+`python .agents/skills/flint-sdk-wiki/scripts/test_sync.py`.
 
 ## Publish
 

@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Serein
+Name=Flint
 Comment=Experimental unofficial native Discord client
-Exec=serein
-Icon=serein
-StartupWMClass=cz.viceverse.serein
+Exec=flint
+Icon=flint
+StartupWMClass=dev.atrello.flint
 Terminal=false
 Categories=Network;InstantMessaging;

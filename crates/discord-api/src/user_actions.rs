@@ -630,7 +630,7 @@ mod tests {
 				400,
 				r#"{"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey"}"#,
 				Err(Failure::ProtocolAt(
-					"Discord requires verification for this action; complete it in the official client",
+					"Verification is required for this action; it cannot be completed here",
 				)),
 			),
 			(

@@ -8,8 +8,38 @@ pub(super) const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 	60.0
 };
 
+impl SignInForm {
+	/// Starts with the configured server, or the one given in `FLINT_SERVER`, so the field is filled.
+	pub(super) fn new() -> Self {
+		let server = model::endpoints::configured()
+			.map(|endpoints| endpoints.origin.clone())
+			.or_else(|| std::env::var("FLINT_SERVER").ok())
+			.unwrap_or_default();
+		Self {
+			server,
+			..Self::default()
+		}
+	}
+}
+
+/// Fields for the native sign-in form. Only the token leaves this form; the password is cleared
+/// as soon as a sign-in starts.
+#[derive(Default)]
+pub(super) struct SignInForm {
+	pub(super) server: String,
+	pub(super) login: String,
+	pub(super) password: String,
+	pub(super) email: String,
+	pub(super) register: bool,
+}
+
 impl Desktop {
 	pub(super) fn connect(&mut self, secret: SessionSecret, save: bool, ctx: &egui::Context) {
+		// Nothing talks to a server until its address is set, whether from FLINT_SERVER or the form.
+		if model::endpoints::configured().is_none() {
+			self.credential_status = "Enter the server address above to sign in";
+			return;
+		}
 		if self.presence_load_pending {
 			self.deferred_connect = Some((secret, save));
 			self.credential_status = "Connecting to Discord…";
@@ -376,7 +406,7 @@ impl Desktop {
 							ui.label(
 								ui::design::semibold(
 									ui,
-									ui::i18n::translate("main-restoring-screen-serein"),
+									ui::i18n::translate("main-restoring-screen-flint"),
 									16.0,
 								)
 								.color(p.muted),
@@ -485,7 +515,7 @@ impl Desktop {
 							ui.label(
 								ui::design::semibold(
 									ui,
-									ui::i18n::translate("main-sign-in-screen-serein"),
+									ui::i18n::translate("main-sign-in-screen-flint"),
 									15.0,
 								)
 								.color(p.text_strong),
@@ -616,40 +646,7 @@ impl Desktop {
 			self.sign_in_accounts(ui, idle);
 			ui.add_space(12.0);
 		}
-		let label = if waiting {
-			"Waiting for Discord…"
-		} else if returning {
-			"Use another account"
-		} else {
-			"Continue with Discord"
-		};
-		let button = ui
-			.add_enabled_ui(idle, |ui| {
-				if returning {
-					ui::design::secondary_icon_button(ui, ui::icons::Icon::Plus, label)
-				} else {
-					ui::design::primary_button(ui, label)
-				}
-			})
-			.inner;
-		if button.clicked() && !self.fixture_only {
-			if let Some(store) = &mut self.store {
-				store.cancel_load();
-			}
-			self.credential_status = "Sign in through Discord; saved-login lookup stopped";
-			let wake = ctx.clone();
-			match platform::LoginView::open(self.window.clone(), move || wake.request_repaint()) {
-				Ok(login) => {
-					self.login = Some(login);
-					self.state.auth = AuthState::Authenticating;
-					self.state.status = "Waiting for Discord login";
-				}
-				Err(error) => {
-					self.state.auth = AuthState::Failed;
-					self.state.status = error.label();
-				}
-			}
-		}
+		self.native_sign_in_fields(ui, idle);
 		ui.add_space(16.0);
 		self.sign_in_credentials_note(ui);
 		self.sign_in_status(ui);
@@ -659,6 +656,111 @@ impl Desktop {
 		ui.painter().rect_filled(line, 0, p.border);
 		ui.add_space(8.0);
 		self.sign_in_disclosures(ui, &ctx);
+	}
+	/// Username or email, password, and the register toggle, sent to the configured Steel server.
+	/// The password is cleared as soon as the request starts; only the returned token is kept.
+	fn native_sign_in_fields(&mut self, ui: &mut egui::Ui, idle: bool) {
+		let ctx = ui.ctx().clone();
+		let registering = self.sign_in_form.register;
+		ui.vertical_centered(|ui| {
+			ui.set_max_width(320.0);
+			ui.add_enabled_ui(idle && !self.fixture_only, |ui| {
+				ui.add(
+					egui::TextEdit::singleline(&mut self.sign_in_form.server)
+						.hint_text("Server, for example https://chat.example.com")
+						.desired_width(f32::INFINITY),
+				);
+				ui.add_space(6.0);
+				ui.add(
+					egui::TextEdit::singleline(&mut self.sign_in_form.login)
+						.hint_text("Username or email")
+						.desired_width(f32::INFINITY),
+				);
+				if registering {
+					ui.add_space(6.0);
+					ui.add(
+						egui::TextEdit::singleline(&mut self.sign_in_form.email)
+							.hint_text("Email (optional)")
+							.desired_width(f32::INFINITY),
+					);
+				}
+				ui.add_space(6.0);
+				let submitted =
+					ui.add(
+						egui::TextEdit::singleline(&mut self.sign_in_form.password)
+							.password(true)
+							.hint_text("Password")
+							.desired_width(f32::INFINITY),
+					)
+					.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+				ui.add_space(12.0);
+				let label = if registering {
+					"Create account"
+				} else {
+					"Sign in"
+				};
+				if ui::design::primary_button(ui, label).clicked() || submitted {
+					self.start_native_sign_in(&ctx);
+				}
+				ui.add_space(8.0);
+				let toggle = if registering {
+					"I already have an account"
+				} else {
+					"Create an account"
+				};
+				if ui::design::secondary_button(ui, toggle).clicked() {
+					self.sign_in_form.register = !registering;
+				}
+			});
+		});
+	}
+	/// Runs sign-in or registration on a worker thread so the window keeps drawing. The result is
+	/// picked up in the frame loop and handed to `connect`, like a token from any other login.
+	pub(super) fn start_native_sign_in(&mut self, ctx: &egui::Context) {
+		let server = self.sign_in_form.server.trim().to_owned();
+		if let Err(error) = model::endpoints::configure(&server) {
+			self.state.status = match error {
+				model::endpoints::EndpointError::AlreadySet => {
+					"This session already uses another server; restart Flint to change it"
+				}
+				_ => "Enter a server address such as https://chat.example.com",
+			};
+			return;
+		}
+		let login = self.sign_in_form.login.trim().to_owned();
+		let password = std::mem::take(&mut self.sign_in_form.password);
+		let email = self.sign_in_form.email.trim().to_owned();
+		let registering = self.sign_in_form.register;
+		if login.is_empty() || password.is_empty() {
+			self.state.status = "Enter your username or email and password";
+			return;
+		}
+		if registering && password.chars().count() < 8 {
+			self.state.status = "Password must be at least 8 characters";
+			return;
+		}
+		let (send, receive) = std::sync::mpsc::channel();
+		let wake = ctx.clone();
+		std::thread::spawn(move || {
+			let result = tokio::runtime::Builder::new_current_thread()
+				.enable_all()
+				.build()
+				.map_err(|_| client_core::auth::Failure::Network)
+				.and_then(|runtime| {
+					runtime.block_on(async {
+						if registering {
+							discord_api::auth::register(&login, &password, Some(&email)).await
+						} else {
+							discord_api::auth::sign_in(&login, &password).await
+						}
+					})
+				});
+			let _ = send.send(result);
+			wake.request_repaint();
+		});
+		self.native_sign_in = Some(receive);
+		self.state.auth = client_core::auth::AuthState::Authenticating;
+		self.state.status = "Signing in to the server";
 	}
 	/// App mark over a welcome line that adapts to whether this device already knows an account.
 	fn sign_in_header(&self, ui: &mut egui::Ui, returning: bool) {
@@ -672,7 +774,7 @@ impl Desktop {
 					ui::i18n::translate_if_key(if returning {
 						"main-sign-in-header-welcome-back"
 					} else {
-						"main-sign-in-header-welcome-to-serein"
+						"main-sign-in-header-welcome-to-flint"
 					}),
 					24.0,
 				)
@@ -1005,7 +1107,7 @@ impl Desktop {
 		let p = ui::design::palette(ui);
 		if ui::design::disclosure(
 			ui,
-			&ui::i18n::translate("main-sign-in-disclosures-about-serein"),
+			&ui::i18n::translate("main-sign-in-disclosures-about-flint"),
 			self.about_open,
 		)
 		.clicked()
@@ -1108,7 +1210,7 @@ impl Desktop {
 	}
 }
 
-/// The Serein mark on a solid accent tile; one shape at every size, no halo.
+/// The Flint mark on a solid accent tile; one shape at every size, no halo.
 fn app_mark(ui: &mut egui::Ui, size: f32) {
 	let p = ui::design::palette(ui);
 	let (mark, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
@@ -1116,7 +1218,7 @@ fn app_mark(ui: &mut egui::Ui, size: f32) {
 		.rect_filled(mark, (size * 0.25).round() as u8, p.accent);
 	ui::icons::paint(
 		ui.painter(),
-		ui::icons::Icon::Serein,
+		ui::icons::Icon::Flint,
 		mark.shrink(size * 0.24),
 		p.accent_text,
 	);

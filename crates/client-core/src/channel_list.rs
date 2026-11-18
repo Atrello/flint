@@ -396,7 +396,7 @@ impl State {
 		if let Some(write) = self.channel_list.take() {
 			self.channel_list.status = Some((
 				write.guild,
-				"Outcome unknown; check Discord before retrying",
+				"Outcome unknown; check the server before retrying",
 			));
 		}
 	}

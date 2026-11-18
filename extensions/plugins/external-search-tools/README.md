@@ -1,8 +1,8 @@
 # External Search Tools
 
-A safe Serein port of Equicord/Vencord **Translate** and **ReplaceGoogleSearch**
+A safe Flint port of Equicord/Vencord **Translate** and **ReplaceGoogleSearch**
 workflows. It reads the selected message text and proposes an external public
-browser page for translation or search. Serein validates and displays that URL,
+browser page for translation or search. Flint validates and displays that URL,
 and only opens it after the user confirms **Apply**.
 
 Unlike the upstream plugins, this port performs no inline translation, no API

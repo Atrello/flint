@@ -2211,6 +2211,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "flint"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "client-core",
+ "cpal",
+ "diagnostics",
+ "discord-api",
+ "discord-gateway",
+ "discord-protocol",
+ "discord-voice",
+ "eframe",
+ "egui-winit",
+ "extensions",
+ "find-msvc-tools",
+ "fontique 0.11.1",
+ "futures-util",
+ "getrandom 0.4.3",
+ "image",
+ "local-store",
+ "log",
+ "md4",
+ "model",
+ "opus2",
+ "platform",
+ "png",
+ "rasterlottie",
+ "resvg",
+ "rtrb",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "symphonia",
+ "test-support",
+ "time",
+ "tokio",
+ "tokio-tungstenite",
+ "ui",
+ "url",
+ "winit",
+ "wreq",
+ "zeroize",
+ "zip",
+]
+
+[[package]]
 name = "float-cmp"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4106,6 +4153,8 @@ name = "model"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "thiserror 2.0.20",
+ "url",
  "zeroize",
 ]
 
@@ -6321,53 +6370,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
 dependencies = [
  "serde_core",
-]
-
-[[package]]
-name = "serein"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "client-core",
- "cpal",
- "diagnostics",
- "discord-api",
- "discord-gateway",
- "discord-protocol",
- "discord-voice",
- "eframe",
- "egui-winit",
- "extensions",
- "find-msvc-tools",
- "fontique 0.11.1",
- "futures-util",
- "getrandom 0.4.3",
- "image",
- "local-store",
- "log",
- "md4",
- "model",
- "opus2",
- "platform",
- "png",
- "rasterlottie",
- "resvg",
- "rtrb",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "symphonia",
- "test-support",
- "time",
- "tokio",
- "tokio-tungstenite",
- "ui",
- "url",
- "winit",
- "wreq",
- "zeroize",
- "zip",
 ]
 
 [[package]]

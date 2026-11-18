@@ -174,7 +174,7 @@ impl State {
 	pub(crate) fn cancel_group_action(&mut self) {
 		if let Some((channel, request, _, _, _)) = self.group_actions.pending.take() {
 			self.group_actions.status =
-				Some((channel, "Outcome unknown; check Discord before retrying"));
+				Some((channel, "Outcome unknown; check the server before retrying"));
 			self.group_actions.completed = Some((channel, request, false));
 		}
 	}

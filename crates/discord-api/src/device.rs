@@ -3,7 +3,7 @@
 //! ID Discord issues. Without them every launch looks like a new device with no history. Yapfast
 //! and SakuraCord keep both; how the service weighs them is unverified.
 //!
-//! Only `https://discord.com` cookies are taken and sent. Session cookies stay in memory;
+//! Only cookies for the configured Steel server are taken and sent. Session cookies stay in memory;
 //! persistent ones and the installation ID are saved in one private, bounded file that can
 //! be deleted at any time. They are device state, not credentials: the account token is never
 //! written here.
@@ -18,7 +18,6 @@ use wreq::{
 	header::HeaderValue,
 };
 
-const HOST: &str = "discord.com";
 /// Discord and Cloudflare set a handful; anything past this is not a browser profile's worth.
 const MAX_COOKIES: usize = 16;
 /// Name plus value, the limit browsers apply to one cookie.
@@ -94,13 +93,6 @@ pub fn keep_in(file: PathBuf) {
 	state.file = Some(file);
 }
 
-/// Keeps the installation ID Discord issued and saves it with the device.
-pub(crate) fn set_installation(id: &str) {
-	if client_core::fingerprint::set_installation_id(id) {
-		store().save();
-	}
-}
-
 impl Device {
 	/// Saves the persistent cookies and the installation ID. The snapshot is taken under the
 	/// cookie lock and written outside it.
@@ -131,7 +123,7 @@ impl Device {
 
 impl CookieStore for Device {
 	fn set_cookies(&self, headers: &mut dyn Iterator<Item = &HeaderValue>, uri: &Uri) {
-		if !is_discord(uri) {
+		if !is_server(uri) {
 			return;
 		}
 		let Ok(mut state) = self.state.lock() else {
@@ -148,7 +140,7 @@ impl CookieStore for Device {
 			// A cookie for another site, or a subdomain only, is not this API's to keep.
 			if cookie
 				.domain()
-				.is_some_and(|domain| !domain.eq_ignore_ascii_case(HOST))
+				.is_some_and(|domain| !domain.eq_ignore_ascii_case(&model::endpoints::get().host))
 			{
 				continue;
 			}
@@ -214,7 +206,7 @@ impl CookieStore for Device {
 	}
 
 	fn cookies(&self, uri: &Uri, version: Version) -> Cookies {
-		if !is_discord(uri) {
+		if !is_server(uri) {
 			return Cookies::Empty;
 		}
 		let Ok(state) = self.state.lock() else {
@@ -251,11 +243,17 @@ impl CookieStore for Device {
 	}
 }
 
-fn is_discord(uri: &Uri) -> bool {
-	uri.scheme_str() == Some("https")
+/// Whether a request goes to the configured Steel server over HTTPS (or plain HTTP on localhost).
+fn is_server(uri: &Uri) -> bool {
+	// Compiled out of shipped builds: tests run against one fixed stand-in server.
+	#[cfg(test)]
+	let _ = model::endpoints::configure("https://chat.example.com");
+	let endpoints = model::endpoints::get();
+	let scheme = endpoints.origin.split("://").next().unwrap_or_default();
+	uri.scheme_str() == Some(scheme)
 		&& uri
 			.host()
-			.is_some_and(|host| host.eq_ignore_ascii_case(HOST))
+			.is_some_and(|host| host.eq_ignore_ascii_case(&endpoints.host))
 }
 
 /// RFC 6265 path matching.
@@ -364,7 +362,7 @@ mod tests {
 			.iter()
 			.map(|cookie| HeaderValue::from_str(cookie).unwrap())
 			.collect::<Vec<_>>();
-		let uri = format!("https://discord.com{path}").parse().unwrap();
+		let uri = format!("https://chat.example.com{path}").parse().unwrap();
 		device.set_cookies(&mut headers.iter(), &uri);
 	}
 
@@ -398,7 +396,7 @@ mod tests {
 		assert_eq!(
 			sent(
 				&device,
-				"https://discord.com/api/v10/users/7",
+				"https://chat.example.com/api/v10/users/7",
 				Version::HTTP_2
 			),
 			["scoped=2", "root=1", "quoted=\"v\""]
@@ -406,12 +404,15 @@ mod tests {
 		assert_eq!(
 			sent(
 				&device,
-				"https://discord.com/api/v10/channels/7",
+				"https://chat.example.com/api/v10/channels/7",
 				Version::HTTP_11
 			),
 			["root=1; quoted=\"v\""]
 		);
-		for other in ["http://discord.com/api", "https://cdn.discord.com/api"] {
+		for other in [
+			"http://chat.example.com/api",
+			"https://cdn.chat.example.com/api",
+		] {
 			assert!(sent(&device, other, Version::HTTP_2).is_empty());
 		}
 		// A deletion needs no storable value of its own.
@@ -426,7 +427,7 @@ mod tests {
 		assert_eq!(
 			sent(
 				&device,
-				"https://discord.com/api/v10/users/7",
+				"https://chat.example.com/api/v10/users/7",
 				Version::HTTP_2
 			),
 			["scoped=2"]
@@ -436,7 +437,7 @@ mod tests {
 	#[test]
 	fn a_full_device_evicts_and_saves_privately() {
 		let directory = std::env::temp_dir().join(format!(
-			"serein-device-{}-{}",
+			"flint-device-{}-{}",
 			std::process::id(),
 			unix_now()
 		));
@@ -466,7 +467,7 @@ mod tests {
 			&sessions.iter().map(String::as_str).collect::<Vec<_>>(),
 		);
 		set(&device, "/api", &["new=1; Path=/; Max-Age=1000"]);
-		let held = sent(&device, "https://discord.com/api", Version::HTTP_2);
+		let held = sent(&device, "https://chat.example.com/api", Version::HTTP_2);
 		assert_eq!(held.len(), MAX_COOKIES);
 		assert!(held.contains(&"keep=1".to_owned()) && !held.contains(&"s0=1".to_owned()));
 		assert_eq!(

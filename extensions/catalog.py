@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate and check the immutable extension catalog; canonical package validation lives in Serein.
+"""Generate and check the immutable extension catalog; canonical package validation lives in Flint.
 
 Package URLs are pinned to a commit on `main`. Pull requests are squash-merged, so a branch
 commit can disappear; pins are therefore written after merge (`--pin`, run by CI) from the

@@ -1,9 +1,9 @@
 [Flatpak Ref]
-Name=cz.viceverse.serein
+Name=dev.atrello.flint
 Branch=master
-Title=Serein
+Title=Flint
 Comment=Fast, secure and lightweight native Discord client
-Icon=https://viceverse-cz.github.io/Serein/icons/serein.png
-Url=https://viceverse-cz.github.io/Serein/flatpak/repo
+Icon=https://atrello.github.io/flint/icons/flint.png
+Url=https://atrello.github.io/flint/flatpak/repo
 RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo
 IsRuntime=false
