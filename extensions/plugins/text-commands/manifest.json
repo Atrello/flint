@@ -3,7 +3,7 @@
   "id": "text-commands",
   "name": "Text Commands",
   "version": "1.0.1",
-  "author": "Equicord/Vencord contributors; Flint port contributors",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
   "license": "GPL-3.0-or-later",
   "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/text-commands",
   "kind": "plugin",

@@ -27,10 +27,10 @@
     {
       "manifest": {
         "api_version": 1,
-        "id": "flint-forest",
+        "id": "serein-forest",
         "name": "Forest",
         "version": "1.0.0",
-        "author": "Flint contributors",
+        "author": "Serein contributors",
         "license": "MIT OR Apache-2.0",
         "source": "https://github.com/ViceVerse-cz/Serein",
         "kind": "theme"
@@ -90,10 +90,10 @@
     {
       "manifest": {
         "api_version": 1,
-        "id": "flint-latte",
+        "id": "serein-latte",
         "name": "Latte",
         "version": "1.0.0",
-        "author": "Flint contributors",
+        "author": "Serein contributors",
         "license": "MIT OR Apache-2.0",
         "source": "https://github.com/ViceVerse-cz/Serein",
         "kind": "theme"
@@ -111,10 +111,10 @@
     {
       "manifest": {
         "api_version": 1,
-        "id": "flint-midnight",
+        "id": "serein-midnight",
         "name": "Midnight",
         "version": "1.0.0",
-        "author": "Flint contributors",
+        "author": "Serein contributors",
         "license": "MIT OR Apache-2.0",
         "source": "https://github.com/ViceVerse-cz/Serein",
         "kind": "theme"
@@ -153,10 +153,10 @@
     {
       "manifest": {
         "api_version": 1,
-        "id": "flint-ocean",
+        "id": "serein-ocean",
         "name": "Ocean",
         "version": "1.0.0",
-        "author": "Flint contributors",
+        "author": "Serein contributors",
         "license": "MIT OR Apache-2.0",
         "source": "https://github.com/ViceVerse-cz/Serein",
         "kind": "theme"
@@ -174,10 +174,10 @@
     {
       "manifest": {
         "api_version": 1,
-        "id": "flint-rose",
+        "id": "serein-rose",
         "name": "Rose",
         "version": "1.0.0",
-        "author": "Flint contributors",
+        "author": "Serein contributors",
         "license": "MIT OR Apache-2.0",
         "source": "https://github.com/ViceVerse-cz/Serein",
         "kind": "theme"
@@ -242,7 +242,7 @@
         "id": "api-proxy",
         "name": "API Proxy",
         "version": "1.0.0",
-        "author": "Flint contributors",
+        "author": "Serein contributors",
         "license": "MIT OR Apache-2.0",
         "source": "https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/api-proxy",
         "kind": "plugin",
@@ -284,7 +284,7 @@
         "id": "custom-rpc",
         "name": "Custom Rich Presence",
         "version": "1.0.0",
-        "author": "Flint contributors",
+        "author": "Serein contributors",
         "license": "MIT OR Apache-2.0",
         "source": "https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc",
         "kind": "plugin",
@@ -341,7 +341,7 @@
         "id": "external-search-tools",
         "name": "External Search Tools",
         "version": "1.0.3",
-        "author": "Equicord/Vencord contributors; Flint port contributors",
+        "author": "Equicord/Vencord contributors; Serein port contributors",
         "license": "GPL-3.0-or-later",
         "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/external-search-tools",
         "kind": "plugin",
@@ -384,7 +384,7 @@
         "id": "message-delete-protector",
         "name": "Message delete protector",
         "version": "1.0.0",
-        "author": "Flint contributors",
+        "author": "Serein contributors",
         "license": "MIT OR Apache-2.0",
         "source": "https://github.com/ViceVerse-cz/Serein",
         "kind": "plugin",
@@ -415,7 +415,7 @@
         "id": "offline-composer-tools",
         "name": "Offline Composer Tools",
         "version": "1.0.2",
-        "author": "Equicord/Vencord contributors; Flint port contributors",
+        "author": "Equicord/Vencord contributors; Serein port contributors",
         "license": "GPL-3.0-or-later",
         "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/offline-composer-tools",
         "kind": "plugin",
@@ -461,7 +461,7 @@
         "id": "text-commands",
         "name": "Text Commands",
         "version": "1.0.1",
-        "author": "Equicord/Vencord contributors; Flint port contributors",
+        "author": "Equicord/Vencord contributors; Serein port contributors",
         "license": "GPL-3.0-or-later",
         "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/text-commands",
         "kind": "plugin",
@@ -528,7 +528,7 @@
         "id": "view-raw-message",
         "name": "ViewRaw — safe message view",
         "version": "1.0.1",
-        "author": "Equicord/Vencord contributors; Flint port contributors",
+        "author": "Equicord/Vencord contributors; Serein port contributors",
         "license": "GPL-3.0-or-later",
         "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/view-raw-message",
         "kind": "plugin",
