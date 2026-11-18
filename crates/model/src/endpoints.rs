@@ -91,15 +91,45 @@ pub fn get() -> &'static Endpoints {
 		.expect("server address is configured before any network use")
 }
 
+/// Discord's public media hosts. Their paths are served by Steel under `{origin}/cdn/`.
+const DISCORD_MEDIA_HOSTS: [&str; 2] = ["cdn.discordapp.com", "media.discordapp.net"];
+
+/// The path after a Discord media host, for example `attachments/1/2/a.png` for
+/// `https://cdn.discordapp.com/attachments/1/2/a.png`. Matches the exact host only.
+fn discord_media_path(value: &str) -> Option<&str> {
+	let rest = value.strip_prefix("https://")?;
+	DISCORD_MEDIA_HOSTS.iter().find_map(|host| {
+		rest.strip_prefix(host)
+			.and_then(|rest| rest.strip_prefix('/'))
+	})
+}
+
 /// Makes a server-relative path such as `/cdn/attachments/…` absolute against the configured
-/// origin. Absolute URLs pass through unchanged, and nothing here requires a configured server.
+/// origin. Discord media URLs move to the same path on the configured server. Other absolute
+/// URLs pass through unchanged, and nothing here requires a configured server.
 pub fn absolute_url(value: &str) -> String {
 	match ENDPOINTS.get() {
-		Some(endpoints) if value.starts_with('/') && !value.starts_with("//") => {
-			format!("{}{value}", endpoints.origin)
+		Some(endpoints) => {
+			if let Some(path) = discord_media_path(value) {
+				return format!("{}/cdn/{path}", endpoints.origin);
+			}
+			if value.starts_with('/') && !value.starts_with("//") {
+				return format!("{}{value}", endpoints.origin);
+			}
+			value.to_owned()
 		}
-		_ => value.to_owned(),
+		None => value.to_owned(),
 	}
+}
+
+/// Whether `url` is media this client fetches from the configured server (or from a Discord
+/// media host it has not yet rewritten).
+pub fn is_cdn_url(url: &str) -> bool {
+	discord_media_path(url).is_some()
+		|| ENDPOINTS.get().is_some_and(|endpoints| {
+			url.strip_prefix(endpoints.origin.as_str())
+				.is_some_and(|rest| rest.starts_with("/cdn/"))
+		})
 }
 
 /// Whether `host` is the configured server's host (case-insensitive).
@@ -145,6 +175,31 @@ mod tests {
 			absolute_url("//other.example/a.png"),
 			"//other.example/a.png"
 		);
+	}
+
+	#[test]
+	fn moves_discord_media_to_the_configured_server() {
+		configure("https://chat.example.com").unwrap();
+		assert_eq!(
+			absolute_url("https://cdn.discordapp.com/attachments/1/2/a.png?ex=1"),
+			"https://chat.example.com/cdn/attachments/1/2/a.png?ex=1"
+		);
+		assert_eq!(
+			absolute_url("https://media.discordapp.net/stickers/2.gif"),
+			"https://chat.example.com/cdn/stickers/2.gif"
+		);
+		// Lookalike hosts are not Discord media and keep their address.
+		assert_eq!(
+			absolute_url("https://cdn.discordapp.com.evil.test/a.png"),
+			"https://cdn.discordapp.com.evil.test/a.png"
+		);
+		assert!(is_cdn_url(
+			"https://chat.example.com/cdn/attachments/1/2/a.png"
+		));
+		assert!(is_cdn_url(
+			"https://cdn.discordapp.com/attachments/1/2/a.png"
+		));
+		assert!(!is_cdn_url("https://chat.example.com/api/v10/users/@me"));
 	}
 
 	#[test]
