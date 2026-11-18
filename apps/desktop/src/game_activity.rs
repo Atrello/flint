@@ -38,15 +38,6 @@ const MAX_EXTERNAL_CACHE: usize = 8;
 /// Artwork uploaded while a game runs is picked up, without polling Discord per update.
 const ASSET_REFRESH: Duration = Duration::from_secs(60);
 const SCAN_INTERVAL: Duration = Duration::from_secs(10);
-/// Origins Discord's own RPC WebSocket accepts. A native client sends no origin at all.
-const WEB_ORIGINS: [&str; 6] = [
-	"https://discord.com",
-	"https://ptb.discord.com",
-	"https://canary.discord.com",
-	"https://discordapp.com",
-	"https://ptb.discordapp.com",
-	"https://canary.discordapp.com",
-];
 const INVALID: &str = "A game sent activity that could not be read.";
 
 type Update = (usize, Option<Activity>);
@@ -707,12 +698,10 @@ async fn serve_web<A: Applications>(
 	serve(channel, application, send, slot, invites, service).await
 }
 
-/// Only Discord's own web origins, or a native client that sends no origin, may connect.
+/// Only a local game client may connect. Browsers always send an origin, so any origin is refused.
 fn upgrade_application(request: &Handshake) -> Option<Id> {
-	let origin = request.headers().get("origin");
-	if let Some(origin) = origin {
-		let origin = origin.to_str().ok()?;
-		WEB_ORIGINS.contains(&origin).then_some(())?;
+	if request.headers().get("origin").is_some() {
+		return None;
 	}
 	let query = request.uri().query()?;
 	let mut version = None;
@@ -1235,7 +1224,7 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn websocket_requires_a_discord_origin_and_publishes_activity() {
+	async fn websocket_refuses_browser_origins_and_publishes_activity() {
 		let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
 		let port = listener.local_addr().unwrap().port();
 		let (send, mut receive) = mpsc::channel(16);
@@ -1281,17 +1270,15 @@ mod tests {
 				.is_err()
 		);
 		assert!(connect(None, "?v=2&client_id=7").await.is_err());
-		let (mut socket, _) = connect(Some("https://discord.com"), "?v=1&client_id=7")
-			.await
-			.unwrap();
+		let (mut socket, _) = connect(None, "?v=1&client_id=7").await.unwrap();
 		let ready = socket.next().await.unwrap().unwrap();
 		assert!(ready.to_text().unwrap().contains("READY"));
-		socket.send(Message::Text(r#"{"cmd":"SET_ACTIVITY","nonce":"one","args":{"pid":123,"activity":{"details":"From a browser"}}}"#.into())).await.unwrap();
+		socket.send(Message::Text(r#"{"cmd":"SET_ACTIVITY","nonce":"one","args":{"pid":123,"activity":{"details":"From a game"}}}"#.into())).await.unwrap();
 		let ack = socket.next().await.unwrap().unwrap();
 		assert!(ack.to_text().unwrap().contains("one"));
 		let value = receive.recv().await.unwrap().1.unwrap();
 		assert_eq!(value.application_id, model::Id(7));
-		assert_eq!(value.details.as_deref(), Some("From a browser"));
+		assert_eq!(value.details.as_deref(), Some("From a game"));
 		socket
 			.send(Message::Text(
 				r#"{"cmd":"INVITE_BROWSER","nonce":"two","args":{"code":"hTKzmak"}}"#.into(),
