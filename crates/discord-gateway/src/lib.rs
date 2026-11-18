@@ -12,7 +12,6 @@ mod recovery_tests;
 mod thread_events;
 mod voice;
 #[cfg(debug_assertions)]
-pub use activity::debug_spotify_check;
 use client_core::{
 	Event, MAX_NAV,
 	auth::{Failure, SessionSecret},
@@ -1328,7 +1327,6 @@ pub async fn run_with_activity(
 		watch::Receiver<Option<discord_protocol::rpc::Activity>>,
 		watch::Receiver<model::OwnPresence>,
 		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
-		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 		watch::Receiver<bool>,
 	),
 	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
@@ -1343,8 +1341,7 @@ pub async fn run_with_activity(
 			receiver: activity.0,
 			own_presence: activity.1,
 			member_queries: activity.2,
-			spotify: activity.3,
-			afk: activity.4,
+			afk: activity.3,
 			observe: &observe,
 		}),
 		emit,
@@ -1366,7 +1363,6 @@ pub async fn run_with_activity_recovery(
 		watch::Receiver<Option<discord_protocol::rpc::Activity>>,
 		watch::Receiver<model::OwnPresence>,
 		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
-		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 		watch::Receiver<bool>,
 	),
 	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
@@ -1382,8 +1378,7 @@ pub async fn run_with_activity_recovery(
 			receiver: activity.0,
 			own_presence: activity.1,
 			member_queries: activity.2,
-			spotify: activity.3,
-			afk: activity.4,
+			afk: activity.3,
 			observe: &observe,
 		}),
 		Some(&reconnect),
@@ -1395,7 +1390,6 @@ pub async fn run_with_activity_recovery(
 	.await
 }
 struct ActivityInput<'a> {
-	spotify: watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 	member_queries: watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 	receiver: watch::Receiver<Option<discord_protocol::rpc::Activity>>,
 	own_presence: watch::Receiver<model::OwnPresence>,
@@ -1445,7 +1439,6 @@ async fn run_recoverable(
 	let ignore_observation = |_| Ok(());
 	let mut activity = activity.unwrap_or_else(|| ActivityInput {
 		receiver: watch::channel(None).1,
-		spotify: watch::channel(None).1,
 		member_queries: watch::channel(Default::default()).1,
 		own_presence: watch::channel(model::OwnPresence::default()).1,
 		afk: watch::channel(false).1,
@@ -1545,10 +1538,8 @@ async fn run_session(
 	let mut activity_open = activity_enabled;
 	let mut presence_open = activity_enabled;
 	let mut afk_open = activity_enabled;
-	let mut spotify_open = activity_enabled;
 	let ActivityInput {
 		receiver: activity,
-		spotify,
 		member_queries,
 		own_presence,
 		afk,
@@ -1558,7 +1549,6 @@ async fn run_session(
 	let mut last_observation = None;
 	let mut outgoing_activity = activity::Pending::default();
 	outgoing_activity.update(&activity.borrow_and_update())?;
-	outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
 	outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
 	outgoing_activity.update_afk(*afk.borrow_and_update());
 	let mut member_diagnostics = Diagnostics::new(
@@ -1871,17 +1861,12 @@ async fn run_session(
 					afk_open = changed.is_ok();
 					outgoing_activity.update_afk(*afk.borrow_and_update());
 				}
-				changed = spotify.changed(), if spotify_open => {
-					spotify_open = changed.is_ok();
-					outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
-				}
 				changed = activity.changed(), if activity_open => {
 					activity_open = changed.is_ok();
 					outgoing_activity.update(&activity.borrow_and_update())?;
 				}
 				_ = tokio::time::sleep_until(activity_deadline.unwrap_or(ready_deadline)), if activity_deadline.is_some() => {
 					// Read the latest value even if a watch notification races the timer.
-					outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
 					outgoing_activity.update(&activity.borrow_and_update())?;
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
 					outgoing_activity.update_afk(*afk.borrow_and_update());
@@ -2932,7 +2917,7 @@ mod tests {
 	                let result = run_inner(
 	                    Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
 	                    "wss://chat.example.com/gateway".into(), watch::channel(None).1,
-	                    mpsc::channel(1).1, Some(ActivityInput { spotify: watch::channel(None).1, member_queries: watch::channel(Default::default()).1, receiver, own_presence: presence_receiver, afk: watch::channel(false).1, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
+	                    mpsc::channel(1).1, Some(ActivityInput { member_queries: watch::channel(Default::default()).1, receiver, own_presence: presence_receiver, afk: watch::channel(false).1, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
 	                ).await;
 	                finished.send(()).unwrap();
 	                result

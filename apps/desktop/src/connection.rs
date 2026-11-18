@@ -277,9 +277,6 @@ impl Connection {
 		let (game_report, game_activity) = watch::channel(Ok(None));
 		let (registered_games, registered_receive) = watch::channel(Vec::new());
 		let (running_send, running_game) = watch::channel(None);
-		// Linked-account playback is removed from Flint; the gateway input stays idle until its own pass.
-		let no_linked_playback =
-			watch::channel::<Option<discord_protocol::spotify::Activity>>(None).1;
 		let (invite_send, rpc_invite) = watch::channel(None);
 		let (activity_observed, activity_observation) =
 			watch::channel(discord_gateway::ActivityObservation::Unconfirmed);
@@ -404,7 +401,7 @@ impl Connection {
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
                 let mut gateway_task=AbortTask(tokio::spawn(async move {
-                    let error=discord_gateway::run_with_activity_recovery(secret,model::endpoints::get().gateway_url.clone(),member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,no_linked_playback,afk_receive),move |observation| {
+                    let error=discord_gateway::run_with_activity_recovery(secret,model::endpoints::get().gateway_url.clone(),member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,afk_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },move |report| record_gateway_report(&report_slot, report),|event|{
