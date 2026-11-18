@@ -19,7 +19,8 @@ use voice::AudioSource;
 const DEFAULT_SERVER: &str = "http://127.0.0.1:8080";
 
 struct Args {
-	server: String,
+	/// Set only when `--server` is passed; otherwise the last server signed in to is used.
+	server: Option<String>,
 	home: PathBuf,
 	capture: capture::Source,
 	audio: AudioSource,
@@ -27,7 +28,7 @@ struct Args {
 
 fn parse_args() -> Args {
 	let mut args = std::env::args().skip(1);
-	let mut server = DEFAULT_SERVER.to_string();
+	let mut server = None;
 	let mut home = dirs::data_local_dir()
 		.unwrap_or_else(|| PathBuf::from("."))
 		.join("flint-lite");
@@ -35,7 +36,9 @@ fn parse_args() -> Args {
 	let mut audio = AudioSource::Device;
 	while let Some(arg) = args.next() {
 		match arg.as_str() {
-			"--server" => server = args.next().unwrap_or_else(|| usage("--server needs a URL")),
+			"--server" => {
+				server = Some(args.next().unwrap_or_else(|| usage("--server needs a URL")))
+			}
 			"--home" => {
 				home = PathBuf::from(
 					args.next()
@@ -76,8 +79,12 @@ fn main() -> eframe::Result {
 			.with_min_inner_size([760.0, 480.0]),
 		..Default::default()
 	};
-	let server = args.server.clone();
 	let home = args.home.clone();
+	let server = args
+		.server
+		.clone()
+		.or_else(|| net::load_last_server(&home))
+		.unwrap_or_else(|| DEFAULT_SERVER.to_string());
 	let source = args.capture;
 	let audio = args.audio;
 	eframe::run_native(
