@@ -132,8 +132,14 @@ mod tests {
 			absolute_url("/cdn/attachments/1/2/a.png"),
 			"https://chat.example.com/cdn/attachments/1/2/a.png"
 		);
-		assert_eq!(absolute_url("https://other.example/a.png"), "https://other.example/a.png");
-		assert_eq!(absolute_url("//other.example/a.png"), "//other.example/a.png");
+		assert_eq!(
+			absolute_url("https://other.example/a.png"),
+			"https://other.example/a.png"
+		);
+		assert_eq!(
+			absolute_url("//other.example/a.png"),
+			"//other.example/a.png"
+		);
 	}
 
 	#[test]

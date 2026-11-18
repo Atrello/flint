@@ -25,7 +25,12 @@ fn client() -> Result<Client, Failure> {
 /// `POST /auth/login` with the username or email and password.
 pub async fn sign_in(login: &str, password: &str) -> Result<SessionSecret, Failure> {
 	let body = serde_json::json!({ "login": login, "password": password });
-	post("/auth/login", &body, Failure::ProtocolAt("Username or password is wrong")).await
+	post(
+		"/auth/login",
+		&body,
+		Failure::ProtocolAt("Username or password is wrong"),
+	)
+	.await
 }
 
 /// `POST /auth/register` creates the account and returns its first token.

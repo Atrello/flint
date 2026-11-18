@@ -659,17 +659,20 @@ impl Desktop {
 					);
 				}
 				ui.add_space(6.0);
-				let submitted = ui
-					.add(
+				let submitted =
+					ui.add(
 						egui::TextEdit::singleline(&mut self.sign_in_form.password)
 							.password(true)
 							.hint_text("Password")
 							.desired_width(f32::INFINITY),
 					)
-					.lost_focus()
-					&& ui.input(|input| input.key_pressed(egui::Key::Enter));
+					.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
 				ui.add_space(12.0);
-				let label = if registering { "Create account" } else { "Sign in" };
+				let label = if registering {
+					"Create account"
+				} else {
+					"Sign in"
+				};
 				if ui::design::primary_button(ui, label).clicked() || submitted {
 					self.start_native_sign_in(&ctx);
 				}
