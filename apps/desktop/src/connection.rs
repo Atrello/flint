@@ -56,7 +56,6 @@ pub struct Connection {
 	pub game_activity: watch::Receiver<crate::game_activity::Detection>,
 	pub registered_games: watch::Sender<Vec<model::registered_games::RegisteredGame>>,
 	pub running_game: watch::Receiver<Option<model::registered_games::RunningGame>>,
-	pub spotify_activity: watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 	/// A local Rich Presence client asked the client to show an invite: counter and code.
 	pub rpc_invite: watch::Receiver<Option<(u64, String)>>,
 	pub activity_observation: watch::Receiver<discord_gateway::ActivityObservation>,
@@ -278,8 +277,9 @@ impl Connection {
 		let (game_report, game_activity) = watch::channel(Ok(None));
 		let (registered_games, registered_receive) = watch::channel(Vec::new());
 		let (running_send, running_game) = watch::channel(None);
-		let (spotify_send, spotify_activity) = watch::channel(None);
-		let spotify_receive = spotify_activity.clone();
+		// Linked-account playback is removed from Flint; the gateway input stays idle until its own pass.
+		let no_linked_playback =
+			watch::channel::<Option<discord_protocol::spotify::Activity>>(None).1;
 		let (invite_send, rpc_invite) = watch::channel(None);
 		let (activity_observed, activity_observation) =
 			watch::channel(discord_gateway::ActivityObservation::Unconfirmed);
@@ -392,10 +392,6 @@ impl Connection {
 					let Some(user)=identified(identity).await else {return;};
 					crate::game_activity::run((share_receive,custom_receive,crate::game_activity::Registered{games:registered_receive,current:running_send}),activity_send,game_report,invite_send,wake,user,api).await
 				}}));
-				let _spotify_task=AbortTask(tokio::spawn({let (identity,wake,api,presence)=(identity.clone(),wake.clone(),api.clone(),presence_receive.clone());async move {
-					let Some(user)=identified(identity).await else {return;};
-					crate::spotify::run(api,user.id,presence,spotify_send,wake).await
-				}}));
 				let _idle_task=AbortTask(tokio::spawn(run_auto_idle(auto_idle_receive,afk,wake.clone(),platform::idle::system_idle)));
                 let (recipient_scope,mut recipient_scope_changed)=watch::channel(0u64);
                 let recipient_call=Arc::new(Mutex::new(RecipientCalls::default()));
@@ -408,7 +404,7 @@ impl Connection {
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
                 let mut gateway_task=AbortTask(tokio::spawn(async move {
-                    let error=discord_gateway::run_with_activity_recovery(secret,model::endpoints::get().gateway_url.clone(),member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive,afk_receive),move |observation| {
+                    let error=discord_gateway::run_with_activity_recovery(secret,model::endpoints::get().gateway_url.clone(),member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,no_linked_playback,afk_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },move |report| record_gateway_report(&report_slot, report),|event|{
@@ -953,7 +949,6 @@ impl Connection {
 			registered_games,
 			running_game,
 			custom_rich_presence,
-			spotify_activity,
 			rpc_invite,
 			activity_observation,
 			activity_sharing,
