@@ -127,6 +127,7 @@ pub enum Cmd {
 	StartCall(Vec<String>),
 	LeaveCall,
 	SetMuted(bool),
+	SetCamera(bool),
 	AcceptCall(String),
 	DeclineCall(String),
 }
@@ -165,10 +166,14 @@ pub enum Ev {
 		from: String,
 		frames: u64,
 	},
+	/// A frame from a peer. `camera` is false for screen share and true for the camera.
 	Frame {
 		from: String,
+		camera: bool,
 		width: u32,
 		height: u32,
 		rgba: Vec<u8>,
 	},
+	/// The camera turned on or off because it stopped working.
+	Camera(bool),
 }

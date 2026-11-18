@@ -3,12 +3,26 @@
 //! `Source::TestPattern` produces a moving pattern without a display, so the share path can be
 //! exercised headless. `Source::Monitor` captures the primary monitor through `xcap`.
 
+use std::{
+	sync::{
+		Arc, Mutex as StdMutex,
+		atomic::{AtomicBool, Ordering},
+	},
+	time::{Duration, Instant},
+};
+
 use image::{
 	ExtendedColorType, RgbImage, RgbaImage, codecs::jpeg::JpegEncoder, imageops::FilterType,
+};
+use nokhwa::{
+	Camera,
+	pixel_format::RgbFormat,
+	utils::{CameraIndex, RequestedFormat, RequestedFormatType, Resolution},
 };
 
 /// Frames wider than this are scaled down before encoding.
 const MAX_WIDTH: u32 = 1280;
+const CAMERA_MAX_WIDTH: u32 = 640;
 const JPEG_QUALITY: u8 = 60;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +38,125 @@ pub fn grab_jpeg(source: Source, counter: u64) -> Result<Vec<u8>, String> {
 		Source::TestPattern => test_pattern(counter),
 	};
 	encode_jpeg(frame)
+}
+
+/// Grab one camera frame and encode it as JPEG. Cameras are smaller than screens: frames are
+/// capped at `CAMERA_MAX_WIDTH` so the feed stays cheap to encode and send.
+/// `Ok(None)` means the camera has not produced its first frame yet.
+pub fn grab_camera_jpeg(source: Source, counter: u64) -> Result<Option<Vec<u8>>, String> {
+	let frame = match source {
+		Source::Monitor => match grab_device_camera()? {
+			Some(frame) => frame,
+			None => return Ok(None),
+		},
+		Source::TestPattern => camera_test_pattern(counter),
+	};
+	let frame = if frame.width() > CAMERA_MAX_WIDTH {
+		let h = (frame.height() as u64 * CAMERA_MAX_WIDTH as u64 / frame.width() as u64) as u32;
+		image::imageops::resize(&frame, CAMERA_MAX_WIDTH, h.max(1), FilterType::Triangle)
+	} else {
+		frame
+	};
+	encode_jpeg(frame).map(Some)
+}
+
+/// The camera is owned by one thread. It runs while frames are wanted and closes the device
+/// after a few seconds without a request, so the camera light goes off when nothing needs it.
+struct CameraFeed {
+	latest: Arc<StdMutex<Option<RgbaImage>>>,
+	wanted: Arc<StdMutex<Instant>>,
+	error: Arc<StdMutex<Option<String>>>,
+	running: Arc<AtomicBool>,
+}
+
+static CAMERA: StdMutex<Option<CameraFeed>> = StdMutex::new(None);
+const CAMERA_IDLE: Duration = Duration::from_secs(3);
+
+fn grab_device_camera() -> Result<Option<RgbaImage>, String> {
+	let mut slot = CAMERA.lock().unwrap_or_else(|e| e.into_inner());
+	let feed = slot.get_or_insert_with(|| CameraFeed {
+		latest: Arc::new(StdMutex::new(None)),
+		wanted: Arc::new(StdMutex::new(Instant::now())),
+		error: Arc::new(StdMutex::new(None)),
+		running: Arc::new(AtomicBool::new(false)),
+	});
+	*feed.wanted.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+	if let Some(err) = feed.error.lock().unwrap_or_else(|e| e.into_inner()).take() {
+		return Err(err);
+	}
+	if !feed.running.swap(true, Ordering::SeqCst) {
+		let (latest, wanted, error, running) = (
+			feed.latest.clone(),
+			feed.wanted.clone(),
+			feed.error.clone(),
+			feed.running.clone(),
+		);
+		std::thread::spawn(move || {
+			run_camera(&latest, &wanted, &error);
+			*latest.lock().unwrap_or_else(|e| e.into_inner()) = None;
+			running.store(false, Ordering::SeqCst);
+		});
+	}
+	let frame = feed
+		.latest
+		.lock()
+		.unwrap_or_else(|e| e.into_inner())
+		.clone();
+	Ok(frame)
+}
+
+fn run_camera(
+	latest: &StdMutex<Option<RgbaImage>>,
+	wanted: &StdMutex<Instant>,
+	error: &StdMutex<Option<String>>,
+) {
+	let format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::HighestResolution(
+		Resolution::new(CAMERA_MAX_WIDTH, CAMERA_MAX_WIDTH * 9 / 16),
+	));
+	let mut camera = match Camera::new(CameraIndex::Index(0), format)
+		.and_then(|mut camera| camera.open_stream().map(|_| camera))
+	{
+		Ok(camera) => camera,
+		Err(e) => {
+			*error.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!("camera: {e}"));
+			return;
+		}
+	};
+	loop {
+		if wanted.lock().unwrap_or_else(|e| e.into_inner()).elapsed() > CAMERA_IDLE {
+			break;
+		}
+		let decoded = camera
+			.frame()
+			.and_then(|buffer| buffer.decode_image::<RgbFormat>());
+		match decoded {
+			Ok(rgb) => {
+				*latest.lock().unwrap_or_else(|e| e.into_inner()) =
+					Some(image::DynamicImage::ImageRgb8(rgb).to_rgba8());
+			}
+			Err(e) => {
+				*error.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!("camera: {e}"));
+				break;
+			}
+		}
+	}
+	let _ = camera.stop_stream();
+}
+
+/// A 640x360 pattern with a bright disc that moves, to exercise the camera path headless.
+fn camera_test_pattern(counter: u64) -> RgbaImage {
+	let (w, h) = (640u32, 360u32);
+	let cx = (counter as f32 * 9.0) % w as f32;
+	let cy = h as f32 / 2.0;
+	RgbaImage::from_fn(w, h, |x, y| {
+		let dx = x as f32 - cx;
+		let dy = y as f32 - cy;
+		if dx * dx + dy * dy < 40.0 * 40.0 {
+			image::Rgba([250, 220, 60, 255])
+		} else {
+			image::Rgba([30, 40, (y * 120 / h) as u8 + 40, 255])
+		}
+	})
 }
 
 fn grab_monitor() -> Result<RgbaImage, String> {
