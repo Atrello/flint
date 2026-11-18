@@ -2122,6 +2122,8 @@ profiles-more-menu-add-note = 新增笔记
 # Context: more_menu
 profiles-more-menu-block = 屏蔽
 profiles-view-full-profile = 查看完整个人资料
+profiles-app-add = Add app
+profiles-app-remove = Remove app
 
 profiles-copy-username = 复制用户名
 

@@ -58,6 +58,19 @@ impl State {
 	/// The request that loads the installed list, unless it is loaded, loading, or waiting out
 	/// its retry backoff.
 	pub fn request_app_installs(&mut self, now: Instant) -> Option<Command> {
+		// The install control only shows in a conversation with a bot, so load nothing elsewhere.
+		let bot_conversation = self
+			.selected
+			.and_then(|channel| self.channel(channel))
+			.is_some_and(|channel| {
+				channel
+					.recipients
+					.iter()
+					.any(|user| user.kind == model::AccountKind::Bot)
+			});
+		if !bot_conversation {
+			return None;
+		}
 		let installs = &self.app_installs;
 		if installs.loading
 			|| installs.installed.is_some()

@@ -2107,6 +2107,8 @@ profiles-more-menu-add-note = Not Ekle
 # Context: more_menu
 profiles-more-menu-block = Engellemek
 profiles-view-full-profile = Tam Profili Görüntüle
+profiles-app-add = Add app
+profiles-app-remove = Remove app
 profiles-copy-username = Kullanıcı Adını Kopyala
 profiles-username-unavailable = Kullanıcı adını yüklemek için profili açın
 profiles-ignore = Yok Say
