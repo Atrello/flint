@@ -181,6 +181,9 @@ impl App {
 				self.incoming = incoming;
 			}
 			Ev::Camera(on) => self.camera_on = on,
+			Ev::CameraOff(peer) => {
+				self.cameras.remove(&peer);
+			}
 			Ev::Frame {
 				from,
 				camera: true,

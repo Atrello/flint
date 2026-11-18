@@ -6,7 +6,7 @@ friends, direct messages, group messages, and peer-to-peer screen share.
 - Chat, friends, groups and offline delivery go through Steel.
 - Screen share is peer to peer over WebRTC. Steel only relays the offer, answer and ICE
   candidates (`CALL_SIGNAL`). Frames never touch the server.
-- Voice calls: Opus audio over WebRTC, peer to peer, with the microphone sent to each connected peer during a call. Camera video is peer to peer too: a camera feed is sent on its own WebRTC data channel to peers who have joined the call. Turn it on from the call header. The camera opens only while it is on and closes a few seconds after it is turned off. `--test-pattern` uses a synthetic moving frame instead of the camera.
+- Voice calls: Opus audio over WebRTC, peer to peer, with the microphone sent to each connected peer during a call. Camera video is peer to peer too: 720p at 30 frames per second, H.264 over a WebRTC video track, to peers who have joined the call. The bitrate starts at 1.5 Mbit/s and follows the receivers' loss reports between 0.3 and 2.5 Mbit/s. Turn the camera on from the call header. It opens only while on and closes a few seconds after it is turned off. `--test-pattern` uses a synthetic moving frame instead of the camera.
 
 ## Run
 

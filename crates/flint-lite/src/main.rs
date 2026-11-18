@@ -9,6 +9,7 @@ mod gateway;
 mod model;
 mod net;
 mod p2p;
+mod video;
 mod voice;
 
 use std::path::PathBuf;

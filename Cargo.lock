@@ -2682,6 +2682,7 @@ dependencies = [
  "futures-util",
  "image",
  "nokhwa",
+ "openh264",
  "opus2",
  "reqwest",
  "rustls",
