@@ -928,9 +928,7 @@ fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 	let original_gif = media.url.as_deref().filter(|url| {
 		let p = path(url);
 		animate
-			&& (model::valid_gif_url(url)
-				|| url.starts_with("https://cdn.discordapp.com/")
-				|| url.starts_with("https://media.discordapp.net/"))
+			&& (model::valid_gif_url(url) || model::endpoints::is_cdn_url(url))
 			&& (p.ends_with(".gif") || p.ends_with(".webp"))
 	});
 	let raw = original_gif
