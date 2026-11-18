@@ -120,6 +120,21 @@ impl DiscordApi {
 				"Interaction unavailable while reconnecting",
 			))?;
 		let (kind, mut data) = match &request.data {
+			Data::Autocomplete {
+				invocation,
+				focused,
+			} => {
+				let command = &invocation.command;
+				let mut options =
+					serde_json::to_value(&invocation.options).map_err(|_| Failure::Protocol)?;
+				mark_focused(&mut options, focused);
+				let mut data = json!({"type":1,"id":command.id,"version":command.version,
+					"name":command.name,"options":options});
+				if let Some(guild) = command.guild_id {
+					data["guild_id"] = json!(guild);
+				}
+				(4, data)
+			}
 			Data::ApplicationCommand { invocation } => {
 				let command = &invocation.command;
 				let mut data = json!({"type":1,"id":command.id,"version":command.version,
@@ -182,6 +197,22 @@ impl DiscordApi {
 		self.request_limited(wreq::Method::POST, "/interactions", Some(body), 64 * 1024)
 			.await
 			.map(|_| ())
+	}
+}
+
+/// Mark the option being typed in an autocomplete request with `"focused": true`.
+fn mark_focused(options: &mut Value, focused: &str) {
+	let Some(items) = options.as_array_mut() else {
+		return;
+	};
+	for item in items {
+		if item.get("name").and_then(Value::as_str) == Some(focused) && item.get("value").is_some()
+		{
+			item["focused"] = json!(true);
+		}
+		if let Some(children) = item.get_mut("options") {
+			mark_focused(children, focused);
+		}
 	}
 }
 

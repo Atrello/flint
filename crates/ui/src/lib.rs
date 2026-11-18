@@ -3314,6 +3314,13 @@ impl MessagingUi {
 		ctx: &egui::Context,
 		commands: &mut Vec<Command>,
 	) {
+		let now = std::time::Instant::now();
+		if let Some(command) = state.request_app_installs(now) {
+			commands.push(command);
+		}
+		if let Some(delay) = state.app_installs.retry_delay(now) {
+			ctx.request_repaint_after(delay);
+		}
 		let had_edit = self.editing.is_some();
 		self.reconcile_edit(state);
 		let closed_here = self.edit_closed_channel.take() == Some(channel);
@@ -4055,6 +4062,9 @@ impl MessagingUi {
                                 ui.add_enabled_ui(keyboard_enabled, |ui| {
                                     self.slash_commands.composer(ui, state, channel, &self.keybinds);
                                 });
+                                if let Some(command) = self.slash_commands.take_autocomplete(state) {
+                                    commands.push(command);
+                                }
                                 if self.slash_commands.active.is_none() {
                                     ctx.memory_mut(|memory| memory.request_focus(composer_id));
                                 }
@@ -4733,6 +4743,11 @@ impl MessagingUi {
 					floor: attachments::Floor::Fit,
 				});
 				self.profile.close();
+			}
+			profiles::Action::SetAppInstalled { bot, install } => {
+				if let Some(command) = state.set_app_installed(bot, install) {
+					commands.push(command);
+				}
 			}
 			profiles::Action::AddFriend(id) => {
 				if let Some(command) = state.add_profile_friend(id) {

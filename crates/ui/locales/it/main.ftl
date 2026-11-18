@@ -2106,6 +2106,8 @@ profiles-more-menu-add-note = Aggiungi nota
 # Context: more_menu
 profiles-more-menu-block = Bloccare
 profiles-view-full-profile = Visualizza profilo completo
+profiles-app-add = Add app
+profiles-app-remove = Remove app
 profiles-copy-username = Copia nome utente
 profiles-username-unavailable = Apri il profilo per caricare il nome utente
 profiles-ignore = Ignora

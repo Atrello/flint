@@ -290,6 +290,11 @@ pub enum Action {
 	/// Open the DM from the profile footer without submitting its draft.
 	OpenDirect(User),
 	AddFriend(Id),
+	/// Installs or removes the application behind a bot user for this account.
+	SetAppInstalled {
+		bot: Id,
+		install: bool,
+	},
 	RemoveFriend,
 	AcceptFriend(Id),
 	Profile(User),
@@ -1137,6 +1142,24 @@ fn more_menu(
 	}
 	if user.webhook || own_profile {
 		return action;
+	}
+	if user.kind == model::AccountKind::Bot
+		&& let Some(installed) = state.app_installs.installed.as_ref()
+	{
+		let is_installed = installed.contains(&user.id);
+		let pending = state.app_installs.pending.contains(&user.id);
+		let label = if is_installed {
+			crate::i18n::translate("profiles-app-remove")
+		} else {
+			crate::i18n::translate("profiles-app-add")
+		};
+		if ui.add_enabled(!pending, egui::Button::new(label)).clicked() {
+			action = Some(Action::SetAppInstalled {
+				bot: user.id,
+				install: !is_installed,
+			});
+			ui.close();
+		}
 	}
 	let enabled = actions_enabled(state);
 	let friend = state.friends().any(|friend| friend.id == user.id);

@@ -2172,6 +2172,8 @@ profiles-more-menu-add-note = Add Note
 # Context: more_menu
 profiles-more-menu-block = Block
 profiles-view-full-profile = View Full Profile
+profiles-app-add = Add app
+profiles-app-remove = Remove app
 profiles-copy-username = Copy Username
 profiles-username-unavailable = Open this profile to load the username
 profiles-ignore = Ignore

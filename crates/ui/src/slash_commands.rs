@@ -60,6 +60,8 @@ pub(super) struct Menu {
 	argument_rect: Option<egui::Rect>,
 	focus_argument: bool,
 	focused_option: usize,
+	/// Option whose text changed or gained focus this frame and needs suggestions.
+	autocomplete_pending: Option<String>,
 	pub active: Option<Active>,
 	pub error: Option<&'static str>,
 	pub run: bool,
@@ -741,6 +743,8 @@ impl Menu {
 		let width = ui.available_width();
 		let focus_first = allowed && std::mem::take(&mut self.focus_argument);
 		let mut back = false;
+		let command_id = active.id;
+		let mut requested = None;
 		let response = egui::ScrollArea::vertical()
 			.id_salt(("inline-arguments", channel, active.id))
 			.max_height(112.0)
@@ -947,7 +951,14 @@ impl Menu {
 								{
 									self.run = true;
 								}
-								let response = argument(ui, option, value, state, channel, id);
+								let response =
+									argument(ui, option, value, state, channel, command_id, id);
+								if option.autocomplete
+									&& option.kind == 3 && (response.changed()
+									|| response.gained_focus())
+								{
+									requested = Some(option.name.clone());
+								}
 								if focus_first && index == 0 {
 									response.request_focus();
 								}
@@ -963,6 +974,9 @@ impl Menu {
 				})
 			});
 		self.argument_rect = Some(response.inner_rect);
+		if requested.is_some() {
+			self.autocomplete_pending = requested;
+		}
 		if back {
 			self.active = None;
 			self.error = None;
@@ -1309,9 +1323,12 @@ fn argument(
 	value: &mut String,
 	state: &State,
 	channel: Id,
+	command: Id,
 	id: egui::Id,
 ) -> egui::Response {
-	if !option.choices.is_empty() || option.kind == 5 {
+	if option.autocomplete && option.kind == 3 && option.choices.is_empty() {
+		autocomplete_argument(ui, option, value, state, channel, command, id)
+	} else if !option.choices.is_empty() || option.kind == 5 {
 		let label = option
 			.choices
 			.iter()
@@ -1429,6 +1446,72 @@ fn argument(
 				.char_limit(usize::from(option.max_length.unwrap_or(6000)).min(6000))
 				.desired_width(ui.available_width()),
 		)
+	}
+}
+
+/// Text argument whose suggestions come from the application's autocomplete responses.
+fn autocomplete_argument(
+	ui: &mut egui::Ui,
+	option: &CommandOption,
+	value: &mut String,
+	state: &State,
+	channel: Id,
+	command: Id,
+	id: egui::Id,
+) -> egui::Response {
+	let answer = state.interactions.autocomplete.as_ref().filter(|answer| {
+		answer.channel == channel && answer.command == command && answer.option == option.name
+	});
+	ui.horizontal(|ui| {
+		let response = ui.add(
+			egui::TextEdit::singleline(value)
+				.align(egui::Align2::LEFT_CENTER)
+				.id(id)
+				.frame(egui::Frame::NONE)
+				.font(egui::FontId::proportional(14.0))
+				.text_color(design::palette(ui).text_strong)
+				.char_limit(usize::from(option.max_length.unwrap_or(6000)).min(6000))
+				.desired_width((ui.available_width() - 25.0).max(24.0)),
+		);
+		ui.menu_button("▾", |ui| {
+			egui::ScrollArea::vertical()
+				.max_height(180.0)
+				.show(ui, |ui| match answer {
+					None => {
+						ui.weak("Type to see suggestions");
+					}
+					Some(answer) if answer.loading => {
+						ui.weak("Loading suggestions…");
+					}
+					Some(answer) if answer.error.is_some() => {
+						ui.weak(answer.error.unwrap_or_default());
+					}
+					Some(answer) if answer.choices.is_empty() => {
+						ui.weak("No suggestions");
+					}
+					Some(answer) => {
+						for choice in &answer.choices {
+							if ui.button(&choice.name).clicked() {
+								*value = value_text(&choice.value);
+								ui.close();
+							}
+						}
+					}
+				});
+		});
+		response
+	})
+	.inner
+}
+
+impl Menu {
+	/// Sends the autocomplete request for the option the player just edited, if any.
+	pub fn take_autocomplete(&mut self, state: &mut State) -> Option<Command> {
+		let option = self.autocomplete_pending.take()?;
+		let active = self.active.as_ref()?;
+		state
+			.prepare_application_autocomplete(active.id, &active.path, &active.values, &option)
+			.ok()
 	}
 }
 

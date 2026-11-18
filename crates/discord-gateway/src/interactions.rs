@@ -75,6 +75,27 @@ pub(super) fn event(name: &str, bytes: &[u8]) -> Result<Option<Event>, Failure> 
 				}),
 			}
 		}
+		"INTERACTION_AUTOCOMPLETE_RESULT" => {
+			#[derive(Deserialize)]
+			struct Choices {
+				choices: Vec<model::application_commands::Choice>,
+			}
+			let Ok(parsed) = serde_json::from_slice::<Choices>(bytes) else {
+				return Ok(None);
+			};
+			if parsed.choices.len() > 25
+				|| parsed
+					.choices
+					.iter()
+					.any(|c| c.name.is_empty() || c.name.chars().count() > 100)
+			{
+				return Ok(None);
+			}
+			interactions::Event::Autocomplete {
+				nonce,
+				choices: parsed.choices,
+			}
+		}
 		_ => return Ok(None),
 	};
 	Ok(Some(Event::Interaction(event)))

@@ -164,6 +164,7 @@ fn dispatch_label(name: &str) -> &'static str {
 		"INTERACTION_SUCCESS",
 		"INTERACTION_FAILURE",
 		"INTERACTION_MODAL_CREATE",
+		"INTERACTION_AUTOCOMPLETE_RESULT",
 		"MESSAGE_CREATE",
 		"MESSAGE_ACK",
 		"PASSIVE_UPDATE_V2",
@@ -2293,7 +2294,7 @@ async fn run_session(
 											emit(Event::AccountSettings { status: touched.status, folders: touched.folders })?;
 										}
 									}
-									"INTERACTION_SUCCESS" | "INTERACTION_FAILURE" | "INTERACTION_MODAL_CREATE" => { if let Some(event) = interactions::event(packet.t.as_deref().unwrap_or_default(),packet.d.get().as_bytes())? { emit(event)?; } },
+									"INTERACTION_SUCCESS" | "INTERACTION_FAILURE" | "INTERACTION_MODAL_CREATE" | "INTERACTION_AUTOCOMPLETE_RESULT" => { if let Some(event) = interactions::event(packet.t.as_deref().unwrap_or_default(),packet.d.get().as_bytes())? { emit(event)?; } },
 									"MESSAGE_CREATE" => {
 										let message = decode::<MessageDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model();
 										if message.ephemeral { emit(Event::Interaction(client_core::interactions::Event::Ephemeral(Box::new(message))))?; }

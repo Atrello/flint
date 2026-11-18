@@ -2107,6 +2107,8 @@ profiles-more-menu-add-note = メモを追加
 # Context: more_menu
 profiles-more-menu-block = ブロック
 profiles-view-full-profile = プロフィール全体を表示
+profiles-app-add = Add app
+profiles-app-remove = Remove app
 profiles-copy-username = ユーザー名をコピー
 profiles-username-unavailable = プロフィールを開くとユーザー名を読み込みます
 profiles-ignore = 無視する

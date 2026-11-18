@@ -2134,6 +2134,8 @@ profiles-more-menu-add-note = Přidat poznámku
 # Context: more_menu
 profiles-more-menu-block = Blok
 profiles-view-full-profile = Zobrazit celý profil
+profiles-app-add = Add app
+profiles-app-remove = Remove app
 profiles-copy-username = Kopírovat uživatelské jméno
 profiles-username-unavailable = Uživatelské jméno se načte po otevření profilu
 profiles-ignore = Ignorovat

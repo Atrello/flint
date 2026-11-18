@@ -2142,6 +2142,8 @@ profiles-more-menu-add-note = 메모 추가
 # Context: more_menu
 profiles-more-menu-block = 차단
 profiles-view-full-profile = 전체 프로필 보기
+profiles-app-add = Add app
+profiles-app-remove = Remove app
 profiles-copy-username = 사용자명 복사
 profiles-username-unavailable = 사용자명을 불러오려면 프로필을 여세요
 profiles-ignore = 무시
