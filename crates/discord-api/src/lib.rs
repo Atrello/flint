@@ -60,7 +60,6 @@ const FOREGROUND_PERMITS: usize = 2;
 const READ_RATE_LIMIT_RETRIES: u8 = 2;
 /// Longer JSON limits fail the read at once, so sign-in never stalls silently.
 const MAX_READ_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
-const API_ORIGIN: &str = "https://discord.com/api/v10";
 /// One thread channel, or one message, stays far below this documented read budget.
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
 
@@ -101,8 +100,12 @@ fn route_label(method: &Method, path: &str) -> Box<str> {
 }
 
 /// The one REST origin. A block or rate limit never moves requests to another host.
+/// The configured Steel REST base, `{server}/api/v10`. Set by `model::endpoints::configure`.
 pub fn api_v10_base() -> &'static str {
-	API_ORIGIN
+	// Compiled out of shipped builds: tests run against one fixed stand-in server.
+	#[cfg(test)]
+	let _ = model::endpoints::configure("https://chat.example.com");
+	model::endpoints::get().api_origin.as_str()
 }
 
 pub struct DiscordApi {
@@ -166,12 +169,8 @@ fn stream_preview_url(bytes: &[u8], key: &str) -> Result<String, Failure> {
 		url: String,
 	}
 	let url = decode::<Preview>(bytes).map_err(|_| Failure::Protocol)?.url;
-	let path = [
-		format!("https://cdn.discordapp.com/streams/{key}/"),
-		format!("https://media.discordapp.net/streams/{key}/"),
-	]
-	.into_iter()
-	.find_map(|prefix| url.strip_prefix(&prefix));
+	let prefix = format!("{}/streams/{key}/", model::endpoints::get().origin);
+	let path = url.strip_prefix(&prefix);
 	let Some(path) = path else {
 		return Err(Failure::Protocol);
 	};
@@ -245,63 +244,16 @@ async fn error_code(response: wreq::Response) -> Option<u64> {
 	}
 	decode::<ErrorBody>(&bytes).ok()?.code
 }
-/// Headers the web client was observed sending on every REST call (unofficial). How the
-/// service weighs them is unverified. Locale and timezone are the operating system's.
-fn fingerprint_headers() -> Result<wreq::header::HeaderMap, Failure> {
+/// The only default headers Flint sends on REST calls: what the server needs, nothing that
+/// imitates a browser or reports the machine's locale, timezone or client build.
+fn request_headers() -> wreq::header::HeaderMap {
 	let mut headers = wreq::header::HeaderMap::new();
-	headers.insert(
-		"x-super-properties",
-		HeaderValue::from_str(&client_core::fingerprint::super_properties())
-			.map_err(|_| Failure::Network)?,
-	);
-	headers.insert(
-		"x-discord-locale",
-		HeaderValue::from_static(client_core::fingerprint::discord_locale()),
-	);
-	headers.insert(
-		"x-discord-timezone",
-		HeaderValue::from_str(client_core::fingerprint::timezone())
-			.map_err(|_| Failure::Network)?,
-	);
-	headers.insert(
-		wreq::header::ACCEPT_LANGUAGE,
-		HeaderValue::from_str(client_core::fingerprint::accept_language())
-			.map_err(|_| Failure::Network)?,
-	);
-	headers.insert(
-		wreq::header::REFERER,
-		HeaderValue::from_static("https://discord.com/channels/@me"),
-	);
-	headers.insert(wreq::header::ACCEPT, HeaderValue::from_static("*/*"));
-	headers.insert(
-		wreq::header::ACCEPT_ENCODING,
-		HeaderValue::from_static(client_core::fingerprint::accept_encoding()),
-	);
-	headers.insert(
-		"x-debug-options",
-		HeaderValue::from_static("bugReporterEnabled"),
-	);
-	// Same-origin fetch() metadata; the emulation's own headers describe a page navigation.
-	headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
-	headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
-	headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
-	if let Some(hints) = client_core::fingerprint::client_hints() {
-		for (name, value) in hints {
-			headers.insert(
-				name,
-				HeaderValue::from_str(&value).map_err(|_| Failure::Network)?,
-			);
-		}
-		headers.insert("priority", HeaderValue::from_static("u=1, i"));
-	}
-	Ok(headers)
+	headers.insert(wreq::header::ACCEPT, HeaderValue::from_static("application/json, */*"));
+	headers
 }
-/// Applies the advertised browser's TLS and HTTP/2 handshake and its user agent. Emulation
-/// resets TLS/HTTP options, so this must wrap the builder before any other option is set.
+/// Flint's own identity on the wire. No browser TLS or HTTP/2 emulation is applied.
 pub(crate) fn browser_transport(builder: wreq::ClientBuilder) -> wreq::ClientBuilder {
-	builder
-		.emulation(client_core::fingerprint::emulation())
-		.user_agent(client_core::fingerprint::user_agent())
+	builder.user_agent(client_core::fingerprint::user_agent())
 }
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 	let builder = browser_transport(Client::builder())
@@ -310,7 +262,7 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 		.retry(wreq::retry::Policy::never())
 		.timeout(Duration::from_secs(20))
 		.connect_timeout(Duration::from_secs(10))
-		.default_headers(fingerprint_headers()?)
+		.default_headers(request_headers())
 		.cookie_provider(device::store().clone());
 	route
 		.client_builder(builder)
@@ -354,7 +306,7 @@ impl DiscordApi {
 			expiry: ExpirySlot::default(),
 			catalog: std::sync::Mutex::default(),
 			#[cfg(test)]
-			base: API_ORIGIN.into(),
+			base: "http://127.0.0.1:0/api/v10".into(),
 			#[cfg(test)]
 			upload_origin: None,
 			#[cfg(test)]
@@ -379,7 +331,7 @@ impl DiscordApi {
 			return;
 		}
 		#[cfg(not(test))]
-		let base = API_ORIGIN;
+		let base = api_v10_base();
 		#[cfg(test)]
 		let base = self.base.as_str();
 		let fetch = async {
@@ -727,7 +679,7 @@ impl DiscordApi {
 				.map_err(|_| Failure::InvalidCredential)?;
 			authorization.set_sensitive(true);
 			#[cfg(not(test))]
-			let base = API_ORIGIN;
+			let base = api_v10_base();
 			// Loopback tests point at a stand-in server.
 			#[cfg(test)]
 			let base = self.base.as_str();
@@ -737,9 +689,6 @@ impl DiscordApi {
 				.await?
 				.request(method.clone(), format!("{base}{path}"))
 				.header(AUTHORIZATION, authorization);
-			if write {
-				request = request.header(wreq::header::ORIGIN, "https://discord.com");
-			}
 			if let Some(installation) = client_core::fingerprint::installation_id() {
 				request = request.header(
 					"x-installation-id",
@@ -2570,16 +2519,17 @@ fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 mod tests {
 	use super::*;
 	#[test]
-	fn stream_preview_accepts_only_the_requested_discord_cdn_path() {
+	fn stream_preview_accepts_only_the_requested_server_path() {
+		model::endpoints::configure("https://chat.example.com").unwrap();
 		let key = "guild:1:2:3";
 		let good =
-			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png"}"#;
+			br#"{"url":"https://chat.example.com/streams/guild:1:2:3/0123456789abcdef.png"}"#;
 		assert!(stream_preview_url(good, key).is_ok());
 		for bad in [
 			br#"{"url":"https://evil.example/streams/guild:1:2:3/0123456789abcdef.png"}"#
 				.as_slice(),
-			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:4/0123456789abcdef.png"}"#,
-			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png"}"#,
+			br#"{"url":"https://chat.example.com/streams/guild:1:2:4/0123456789abcdef.png"}"#,
+			br#"{"url":"https://chat.example.com/streams/guild:1:2:3/../token.png"}"#,
 		] {
 			assert_eq!(stream_preview_url(bad, key), Err(Failure::Protocol));
 		}

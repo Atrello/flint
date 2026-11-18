@@ -118,6 +118,14 @@ fn main() -> eframe::Result {
 		}
 	}
 	platform::memory::tune_allocator();
+	// The Steel server address comes from FLINT_SERVER until the native login screen lands.
+	let server = std::env::var("FLINT_SERVER").unwrap_or_default();
+	if let Err(error) = model::endpoints::configure(&server) {
+		eprintln!(
+			"Flint needs a Steel server address, for example FLINT_SERVER=https://chat.example.com ({error})."
+		);
+		std::process::exit(2);
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-pr565")

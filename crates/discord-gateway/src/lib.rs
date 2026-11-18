@@ -261,24 +261,33 @@ impl RecoveryBudget {
 		Some((used as u8 + 1, RECOVERY_WAITS[used]))
 	}
 }
-/// The Gateway address the web client's page config names (unofficial; observed as
-/// `GATEWAY_ENDPOINT`). Serein does not ask REST for it. It still passes [`validated_url`].
-pub const GATEWAY_URL: &str = "wss://gateway.discord.gg";
+/// Accepts only the configured Steel gateway: same scheme, port and path as
+/// `model::endpoints::get().gateway_url`, the same host or a `gateway-*` subdomain of it, and no
+/// credentials or fragment. Any other address the server names is refused rather than followed.
 pub fn validated_url(value: &str) -> Result<String, Failure> {
+	// Compiled out of shipped builds: tests validate against one fixed stand-in server.
+	#[cfg(test)]
+	let _ = model::endpoints::configure("https://chat.example.com");
 	let mut url = url::Url::parse(value).map_err(|_| Failure::Protocol)?;
-	let host = url.host_str().ok_or(Failure::Protocol)?;
-	if url.scheme() != "wss"
-		|| !(host == "gateway.discord.gg"
-			|| (host.starts_with("gateway-") && host.ends_with(".discord.gg")))
-		|| url.port().is_some()
+	let expected = url::Url::parse(&model::endpoints::get().gateway_url).map_err(|_| Failure::Protocol)?;
+	let host_ok = match (url.host_str(), expected.host_str()) {
+		(Some(host), Some(server)) => {
+			host == server
+				|| (host.starts_with("gateway-") && host.ends_with(&format!(".{server}")))
+		}
+		_ => false,
+	};
+	if url.scheme() != expected.scheme()
+		|| !host_ok
+		|| url.port() != expected.port()
 		|| !url.username().is_empty()
 		|| url.password().is_some()
-		|| url.path() != "/"
+		|| url.path() != expected.path()
 		|| url.fragment().is_some()
 	{
 		return Err(Failure::Protocol);
 	}
-	url.set_query(Some("v=10&encoding=json&compress=zlib-stream"));
+	url.set_query(Some("v=10&encoding=json"));
 	Ok(url.to_string())
 }
 
@@ -2639,7 +2648,7 @@ mod tests {
 	pub(super) fn ready(sequence: u64, session: &str) -> Value {
 		json!({"op":0,"t":"READY","s":sequence,"d":{
 			"user":{"id":"1","username":"synthetic"}, "session_id":session,
-			"resume_gateway_url":"wss://gateway.discord.gg/", "guilds":[], "private_channels":[]
+			"resume_gateway_url":"wss://chat.example.com/gateway", "guilds":[], "private_channels":[]
 		}})
 	}
 
@@ -2711,7 +2720,7 @@ mod tests {
 					Arc::new(
 						SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap(),
 					),
-					"wss://gateway.discord.gg/".into(),
+					"wss://chat.example.com/gateway".into(),
 					watch::channel(None).1,
 					mpsc::channel(1).1,
 					None,
@@ -2919,7 +2928,7 @@ mod tests {
 	            let client = async {
 	                let result = run_inner(
 	                    Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
-	                    "wss://gateway.discord.gg/".into(), watch::channel(None).1,
+	                    "wss://chat.example.com/gateway".into(), watch::channel(None).1,
 	                    mpsc::channel(1).1, Some(ActivityInput { spotify: watch::channel(None).1, member_queries: watch::channel(Default::default()).1, receiver, own_presence: presence_receiver, afk: watch::channel(false).1, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
 	                ).await;
 	                finished.send(()).unwrap();
@@ -2954,7 +2963,7 @@ mod tests {
 	            let state = std::sync::Mutex::new(client_core::State::default());
 	            let client = run_inner(
 	                Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
-	                "wss://gateway.discord.gg/".into(),
+	                "wss://chat.example.com/gateway".into(),
 	                watch::channel(None).1,
 	                mpsc::channel(1).1,
 	                None,
@@ -3017,7 +3026,7 @@ mod tests {
             let observed = std::sync::Mutex::new(Vec::new());
             let client = run_inner(
                 Arc::new(SessionSecret::from_owner_input("SYNTHETIC_TYPING_SESSION".into()).unwrap()),
-                "wss://gateway.discord.gg/".into(), watch::channel(None).1,
+                "wss://chat.example.com/gateway".into(), watch::channel(None).1,
                 mpsc::channel(1).1,
                 None,
                 |event| {
@@ -3111,7 +3120,7 @@ mod tests {
             let emoji_changes=std::sync::atomic::AtomicUsize::new(0);
             let client=run_inner(
                 Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
-                "wss://gateway.discord.gg/".into(),watch::channel(None).1,mpsc::channel(1).1,None,
+                "wss://chat.example.com/gateway".into(),watch::channel(None).1,mpsc::channel(1).1,None,
                 |event| {
 					if let Event::Startup(startup) = &event {
 						let (channels, permissions) = (&startup.channels, startup.permission_state());
@@ -3293,7 +3302,7 @@ mod tests {
 				);
 				let client = run_inner(
 					secret,
-					"wss://gateway.discord.gg/".into(),
+					"wss://chat.example.com/gateway".into(),
 					watch::channel(None).1,
 					mpsc::channel(1).1,
 					None,
@@ -3446,19 +3455,23 @@ mod tests {
 			assert_eq!(close_action(4004), Reconnect::Stop);
 			assert_eq!(close_action(4007), Reconnect::Identify);
 			assert_eq!(close_action(1006), Reconnect::Resume);
+			model::endpoints::configure("https://chat.example.com").unwrap();
 			for url in [
-				"ws://gateway.discord.gg/",
-				"wss://gateway.discord.gg.evil.test/",
-				"wss://user@gateway.discord.gg/",
-				"wss://127.0.0.1/",
-				"wss://gateway.discord.gg:444/",
-				"wss://gateway.discord.gg/path",
+				"ws://chat.example.com/gateway",
+				"wss://chat.example.com.evil.test/gateway",
+				"wss://user@chat.example.com/gateway",
+				"wss://127.0.0.1/gateway",
+				"wss://chat.example.com:444/gateway",
+				"wss://chat.example.com/other",
+				"wss://gateway-x.chat.example.com.evil.test/gateway",
+				"wss://evil.example/gateway",
+				"wss://discord.com/gateway",
 			] {
-				assert!(validated_url(url).is_err());
+				assert!(validated_url(url).is_err(), "{url}");
 			}
 			assert_eq!(
-				validated_url("wss://gateway.discord.gg/?compress=zlib-stream").unwrap(),
-				"wss://gateway.discord.gg/?v=10&encoding=json&compress=zlib-stream"
+				validated_url("wss://chat.example.com/gateway?compress=zlib-stream").unwrap(),
+				"wss://chat.example.com/gateway?v=10&encoding=json"
 			);
 		}
 	}
@@ -3510,7 +3523,7 @@ mod tests {
 			};
 			let client = run_inner(
 				Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
-				"wss://gateway.discord.gg/".into(), watch::channel(None).1, receive, None,
+				"wss://chat.example.com/gateway".into(), watch::channel(None).1, receive, None,
 				|event| {
 					match event {
 						Event::Startup(_) => controls.try_send(V::Sync { channel: Id(2) }).unwrap(),
@@ -3559,7 +3572,7 @@ mod tests {
                 }
                 socket.close(Some(CloseFrame{code:CloseCode::Library(4004),reason:"synthetic stop".into()})).await.unwrap();
             };
-            let client=run_inner(Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),"wss://gateway.discord.gg/".into(),watch::channel(None).1,receive,None,|event| {
+            let client=run_inner(Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),"wss://chat.example.com/gateway".into(),watch::channel(None).1,receive,None,|event| {
                 match event {
                     Event::Startup(_)=>controls.try_send(V::Join{channel:Id(2),request:7,ring:false,mute:false,deaf:false}).unwrap(),
                     Event::Voice(E::State{request,session,..})=>{assert_eq!(request,Some(7));assert_eq!(session.unwrap().expose(),"synthetic-call-session");},
@@ -4307,7 +4320,7 @@ mod member_tests {
 	                let (stream,_)=listener.accept().await.unwrap();let mut socket=accept_async(stream).await.unwrap();
 	                socket.send(Frame::Text(json!({"op":10,"d":{"heartbeat_interval":1000}}).to_string().into())).await.unwrap();
 	                assert!(matches!(socket.next().await,Some(Ok(Frame::Text(_)))));
-	                socket.send(Frame::Text(json!({"op":0,"t":"READY","s":1,"d":{"user":{"id":"1","username":"Owner"},"session_id":"synthetic-members","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[],"private_channels":[]}}).to_string().into())).await.unwrap();
+	                socket.send(Frame::Text(json!({"op":0,"t":"READY","s":1,"d":{"user":{"id":"1","username":"Owner"},"session_id":"synthetic-members","resume_gateway_url":"wss://chat.example.com/gateway","guilds":[],"private_channels":[]}}).to_string().into())).await.unwrap();
 	                let mut typing_ready=false;
 	                let mut subscribed=false;
 	                let mut switched=false;
@@ -4352,7 +4365,7 @@ mod member_tests {
 	                }
 	                socket.close(Some(CloseFrame{code:CloseCode::Library(4004),reason:"synthetic stop".into()})).await.unwrap();
 	            };
-	            let client=run_inner(Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),"wss://gateway.discord.gg/".into(),receive,mpsc::channel(1).1,None,|event| {
+	            let client=run_inner(Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),"wss://chat.example.com/gateway".into(),receive,mpsc::channel(1).1,None,|event| {
 	                if let Event::Members(list)=&event {
 	                    if list.ranges==vec![[100,199]] {
 	                        assert_eq!(list.start,100);
@@ -4404,7 +4417,7 @@ mod member_tests {
 			.await
 			.unwrap();
 		assert!(matches!(socket.next().await, Some(Ok(Frame::Text(_)))));
-		socket.send(Frame::Text(json!({"op":0,"t":"READY","s":1,"d":{"user":{"id":"1","username":"Owner"},"session_id":"synthetic-members","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[],"private_channels":[]}}).to_string().into())).await.unwrap();
+		socket.send(Frame::Text(json!({"op":0,"t":"READY","s":1,"d":{"user":{"id":"1","username":"Owner"},"session_id":"synthetic-members","resume_gateway_url":"wss://chat.example.com/gateway","guilds":[],"private_channels":[]}}).to_string().into())).await.unwrap();
 		socket
 	}
 
@@ -4484,7 +4497,7 @@ mod member_tests {
 		let done = std::cell::Cell::new(Some(done));
 		let client = run_inner(
 			Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
-			"wss://gateway.discord.gg/".into(),
+			"wss://chat.example.com/gateway".into(),
 			receive,
 			mpsc::channel(1).1,
 			None,
@@ -4575,7 +4588,7 @@ mod member_tests {
 		let done = std::cell::Cell::new(Some(done));
 		let client = run_inner(
 			Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
-			"wss://gateway.discord.gg/".into(),
+			"wss://chat.example.com/gateway".into(),
 			receive,
 			mpsc::channel(1).1,
 			None,

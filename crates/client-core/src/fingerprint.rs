@@ -61,13 +61,9 @@ pub fn browser_version() -> String {
 	ELECTRON_VERSION.to_owned()
 }
 
-/// Desktop transport identity; this does not change the native UI into Electron.
+/// Honest client identity: Flint and its version. No browser or Electron emulation.
 pub fn user_agent() -> String {
-	format!(
-		"Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) discord/{} Chrome/{DESKTOP_CHROMIUM_VERSION} Electron/{ELECTRON_VERSION} Safari/537.36",
-		platform_token(),
-		desktop_version()
-	)
+	format!("Flint/{}", env!("CARGO_PKG_VERSION"))
 }
 
 /// Identity for the actual embedded verification engine, independent of REST.

@@ -956,7 +956,7 @@ mod tests {
 	                let (head, bytes) = request(&mut socket).await;
 	                assert!(head.starts_with("POST /channels/1/attachments HTTP/1.1"));
 	                assert!(head.contains("SYNTHETIC_UPLOAD_TOKEN"));
-	                assert!(head.to_ascii_lowercase().contains("x-super-properties: "));
+	                assert!(!head.to_ascii_lowercase().contains("x-super-properties"));
 	                assert!(head.contains(&format!("user-agent: {}", client_core::fingerprint::user_agent())));
 	                assert_eq!(serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(), serde_json::json!({"files":[{"id":id.to_string(),"filename":filename,"file_size":CHUNK_BYTES*2+9,"is_clip":false,"original_content_type":"text/plain"}]}));
 	                respond(&mut socket, "200 OK", &serde_json::json!({"attachments":[{"id":id,"upload_url":upload_url,"upload_filename":format!("synthetic-upload/{id}/file.txt")}]}).to_string()).await;

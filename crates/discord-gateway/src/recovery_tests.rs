@@ -43,7 +43,7 @@ impl Gateway {
 						SessionSecret::from_owner_input("synthetic-recovery-secret".into())
 							.unwrap(),
 					),
-					"wss://gateway.discord.gg/".into(),
+					"wss://chat.example.com/gateway".into(),
 					watch::channel(None).1,
 					mpsc::channel(1).1,
 					None,
@@ -113,7 +113,7 @@ impl Gateway {
 	async fn identified(&self) -> WebSocketStream<TcpStream> {
 		let mut socket = self.socket(false, Some(2)).await;
 		let mut ready = ready(41, "synthetic-recovery-session");
-		ready["d"]["resume_gateway_url"] = json!("wss://gateway-resume.discord.gg/");
+		ready["d"]["resume_gateway_url"] = json!("wss://gateway-resume.chat.example.com/gateway");
 		send(&mut socket, ready).await;
 		acknowledge(&mut socket, 41).await;
 		socket
@@ -227,7 +227,7 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 		.run(async {
 			let mut socket = gateway.socket(false, Some(2)).await;
 			let mut ready = ready(41, "synthetic-recovery-session");
-			ready["d"]["resume_gateway_url"] = json!("wss://gateway-resume.discord.gg/");
+			ready["d"]["resume_gateway_url"] = json!("wss://gateway-resume.chat.example.com/gateway");
 			send(&mut socket, ready).await;
 			acknowledge(&mut socket, 41).await;
 			gateway.manual.store(true, Ordering::Relaxed);
