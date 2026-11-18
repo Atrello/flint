@@ -485,7 +485,7 @@ mod tests {
 		assert!(state.prepare_text_send("Denied").is_none());
 		state.auth = client_core::auth::AuthState::Authenticated;
 		state.gateway_connected = true;
-		for invalid in [" ".into(), "x".repeat(client_core::MAX_CONTENT + 1)] {
+		for invalid in [" ".into(), "x".repeat(client_core::MAX_PREMIUM_CONTENT + 1)] {
 			assert!(state.prepare_text_send(&invalid).is_none());
 		}
 		state

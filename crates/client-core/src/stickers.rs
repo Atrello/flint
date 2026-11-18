@@ -258,14 +258,15 @@ mod tests {
 		state.user = Some(crate::tests::message(1).author);
 		let own = state.user.as_ref().unwrap().id;
 		assert!(state.prepare_sticker_send(&external).is_none());
-		for (premium_type, allowed) in [
-			(model::Patch::Value(2), true),
-			(model::Patch::Absent, true),
-			(model::Patch::Value(0), false),
-			(model::Patch::Value(3), true),
-			(model::Patch::Null, false),
-			(model::Patch::Value(1), false),
-			(model::Patch::Value(255), false),
+		// Every account is entitled to external stickers, whatever the service reports.
+		for premium_type in [
+			model::Patch::Value(2),
+			model::Patch::Absent,
+			model::Patch::Value(0),
+			model::Patch::Value(3),
+			model::Patch::Null,
+			model::Patch::Value(1),
+			model::Patch::Value(255),
 		] {
 			state.apply(crate::Envelope {
 				generation: state.generation,
@@ -274,7 +275,7 @@ mod tests {
 					premium_type,
 				},
 			});
-			assert_eq!(state.can_send_sticker(&external), allowed);
+			assert!(state.can_send_sticker(&external));
 		}
 		state.apply(crate::Envelope {
 			generation: state.generation,
@@ -283,10 +284,10 @@ mod tests {
 				premium_type: model::Patch::Value(2),
 			},
 		});
-		assert!(!state.can_send_sticker(&external));
+		assert!(state.can_send_sticker(&external));
 		state.channels[0].guild = Some(Id(99));
 		assert!(!state.sticker_requires_nitro(&external));
 		state.channels[0].guild = Some(Id(100));
-		assert!(state.sticker_requires_nitro(&external));
+		assert!(!state.sticker_requires_nitro(&external));
 	}
 }

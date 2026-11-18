@@ -2994,7 +2994,7 @@ mod tests {
 	}
 
 	#[test]
-	fn nitro_opt_out_locks_animated_and_external_emoji_without_nitro() {
+	fn nitro_opt_out_does_not_lock_emoji_for_entitled_accounts() {
 		let mut state = test_support::demo_state();
 		state.premium_type = 0;
 		let mut picker = Picker {
@@ -3013,8 +3013,9 @@ mod tests {
 		// Default: offered through built-in image sharing.
 		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
 		picker.hide_nitro_emojis = true;
-		assert!(picker.nitro_locked(&state, Some((source, custom))));
-		assert!(!picker.can_pick(&state, &emoji, Some((source, custom))));
+		// Every account is entitled, so the old Nitro opt-out no longer locks anything.
+		assert!(!picker.nitro_locked(&state, Some((source, custom))));
+		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
 		let still = model::CustomEmoji {
 			animated: false,
 			..custom.clone()
@@ -3073,13 +3074,13 @@ mod tests {
 		};
 		assert!(matches!(
 			picker.pick(&state, local.clone(), "<a:flint_party:9002>".into()),
-			Pick::Insert(text) if text.contains("https://cdn.discordapp.com/emojis/9002.gif?size=64")
+			Pick::Insert(text) if text == "<a:flint_party:9002>"
 		));
 		state.selected = Some(Id(22));
 		picker.channel = state.selected;
 		assert!(matches!(
 			picker.pick(&state, local.clone(), "<a:flint_party:9002>".into()),
-			Pick::Insert(text) if text.contains("https://cdn.discordapp.com/emojis/9002.gif?size=64")
+			Pick::Insert(text) if text == "<a:flint_party:9002>"
 		));
 		state.premium_type = 2;
 		assert!(matches!(
