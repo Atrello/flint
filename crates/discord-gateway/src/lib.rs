@@ -268,9 +268,11 @@ pub fn validated_url(value: &str) -> Result<String, Failure> {
 	// Compiled out of shipped builds: tests validate against one fixed stand-in server.
 	#[cfg(test)]
 	let _ = model::endpoints::configure("https://chat.example.com");
-	let mut url = url::Url::parse(value).map_err(|_| Failure::Protocol)?;
 	let expected =
 		url::Url::parse(&model::endpoints::get().gateway_url).map_err(|_| Failure::Protocol)?;
+	// Steel names its resume address relative to its origin ("/gateway"); resolve it against the
+	// configured gateway first, then apply the same checks as for an absolute address.
+	let mut url = expected.join(value).map_err(|_| Failure::Protocol)?;
 	let host_ok = match (url.host_str(), expected.host_str()) {
 		(Some(host), Some(server)) => {
 			host == server
@@ -3470,6 +3472,11 @@ mod tests {
 			] {
 				assert!(validated_url(url).is_err(), "{url}");
 			}
+			assert_eq!(
+				validated_url("/gateway").unwrap(),
+				"wss://chat.example.com/gateway?v=10&encoding=json"
+			);
+			assert!(validated_url("//evil.example/gateway").is_err());
 			assert_eq!(
 				validated_url("wss://chat.example.com/gateway?compress=zlib-stream").unwrap(),
 				"wss://chat.example.com/gateway?v=10&encoding=json"
