@@ -1048,8 +1048,7 @@ impl State {
 			if matches!(action, Action::Block { .. }) {
 				self.user_actions.bump_view();
 			}
-			self.user_actions.status =
-				Some("Outcome unknown · check the server before retrying");
+			self.user_actions.status = Some("Outcome unknown · check the server before retrying");
 		}
 	}
 	pub(crate) fn observe_dm_reopened(&mut self, channel: Id) {
