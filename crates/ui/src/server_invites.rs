@@ -353,9 +353,8 @@ impl InvitesUi {
 												))
 												.clicked()
 											{
-												ui.ctx().copy_text(format!(
-													"https://discord.gg/{}",
-													invite.code
+												ui.ctx().copy_text(model::endpoints::absolute_url(
+													&format!("/invite/{}", invite.code),
 												));
 												self.copied = Some((
 													invite.code.clone(),
@@ -760,6 +759,7 @@ mod tests {
 	}
 	#[test]
 	fn invite_copy_and_confirmed_revoke_use_existing_command_lane() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let ctx = egui::Context::default();
 		design::apply(&ctx);
 		let mut state = test_support::demo_state();
@@ -808,7 +808,10 @@ mod tests {
 		.0
 		.unwrap();
 		let copied = frame(&ctx, &mut view, &mut state, &mut commands, click(point), "").1;
-		assert_eq!(copied.as_deref(), Some("https://discord.gg/synthetic"));
+		assert_eq!(
+			copied.as_deref(),
+			Some("https://chat.example.com/invite/synthetic")
+		);
 		assert!(commands.is_empty());
 		assert!(state.can_revoke_guild_invite(guild, "synthetic"));
 		view.revoke = Some("synthetic".into());

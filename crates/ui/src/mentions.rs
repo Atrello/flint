@@ -30,8 +30,6 @@ pub struct Menu {
 	dismissed: bool,
 	/// Keyboard moved the highlight; scroll the popout so it stays visible.
 	follow: bool,
-	/// Leave custom emoji that need Nitro out of `:` suggestions.
-	pub hide_nitro_emojis: bool,
 	pub editing: bool,
 }
 pub struct Pick {
@@ -541,7 +539,6 @@ impl Menu {
 	) {
 		let Some((range, query, kind)) = cursor.and_then(|cursor| query(draft, cursor)) else {
 			*self = Self {
-				hide_nitro_emojis: self.hide_nitro_emojis,
 				editing: self.editing,
 				..Self::default()
 			};
@@ -690,8 +687,7 @@ impl Menu {
 							&& emoji.valid() && (state.can_send(channel)
 							|| state
 								.custom_emoji_unavailable_reason(channel, guild.id, emoji)
-								.is_none()) && !(self.hide_nitro_emojis
-							&& state.custom_emoji_requires_nitro(channel, guild.id, emoji))
+								.is_none())
 						{
 							push_emoji(&mut out, (rank, 0, emoji.id.0), || Candidate::Custom {
 								id: emoji.id,
@@ -1358,11 +1354,12 @@ mod tests {
 
 	#[test]
 	fn pill_fingerprints_follow_navigation_metadata_without_message_churn() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let mut state = test_support::demo_state();
 		let messages = [
 			("<#28>", Id(20)),
-			("https://discord.com/channels/10/27/501", Id(20)),
-			("https://discord.com/channels/10/27/501", Id(999)),
+			("https://chat.example.com/channels/10/27/501", Id(20)),
+			("https://chat.example.com/channels/10/27/501", Id(999)),
 			("Plain text", Id(20)),
 		]
 		.map(|(content, channel)| {
@@ -1424,6 +1421,7 @@ mod tests {
 
 	#[test]
 	fn pill_fingerprints_cover_retained_reference_names_and_bound_source_scanning() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let mut state = test_support::demo_state();
 		let mut message = test_support::message(600, Id(20));
 		message.content = "<#77> <#78>".into();
@@ -1459,7 +1457,7 @@ mod tests {
 			Some("Resolved thread 77")
 		);
 		message.content = format!(
-			"{}é<#28> https://discord.com/channels/10/27/501",
+			"{}é<#28> https://chat.example.com/channels/10/27/501",
 			"a".repeat(crate::markdown::MAX_INPUT - 1)
 		);
 		let before = presentation_fingerprint(&state, &message);
@@ -2133,14 +2131,8 @@ mod tests {
 		let mut draft = "hi :he".to_owned();
 		insert(&mut draft, menu.pick(unicode).unwrap(), true, 4096).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
-		// Every account is entitled, so the old Nitro opt-out keeps animated, other-server emoji.
-		menu.hide_nitro_emojis = true;
-		menu.refresh(&state, Id(1), "x", None, &[]);
+		// Every account is entitled, so animated and other-server emoji stay suggested.
 		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
-		assert!(
-			menu.hide_nitro_emojis,
-			"the preference survives a closed menu"
-		);
 		assert!(menu.candidates.iter().any(|c| c.id() == Id(9001)));
 		assert!(
 			menu.candidates
@@ -2150,7 +2142,6 @@ mod tests {
 		state.premium_type = 2;
 		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
 		assert!(menu.candidates.iter().any(|c| c.id() == Id(9001)));
-		menu.hide_nitro_emojis = false;
 		menu.refresh(&state, Id(1), ":+1", Some(3), &[]);
 		assert!(menu.candidates.iter().any(|candidate| matches!(
 			candidate,

@@ -1,4 +1,4 @@
-//! Discord-style server and voice channel invite cards; only visible cards request bounded
+//! Server and voice channel invite cards; only visible cards request bounded
 //! metadata.
 use crate::avatars::{Avatars, Surface};
 use client_core::invites::valid_code;
@@ -11,30 +11,28 @@ pub(crate) enum Action {
 	/// A member's voice channel invite: join the call there.
 	JoinVoice(model::Id),
 }
+/// Parses an invite link on the configured Steel server (`{origin}/invite/{code}`). Other hosts,
+/// schemes, ports and credentials are rejected so a card can only join on the configured server.
 fn code(raw: &str) -> Option<String> {
+	let server = model::endpoints::configured()?;
+	let server_url = url::Url::parse(&server.origin).ok()?;
 	let normalized;
-	let raw = if raw.starts_with("discord.gg/") || raw.starts_with("discord.com/invite/") {
-		normalized = format!("https://{raw}");
+	let raw = if !raw.contains("://") && raw.starts_with(server.host.as_str()) {
+		normalized = format!("{}://{raw}", server_url.scheme());
 		&normalized
 	} else {
 		raw
 	};
 	let url = url::Url::parse(raw).ok()?;
-	if !matches!(url.scheme(), "https" | "http")
+	if url.scheme() != server_url.scheme()
+		|| url.host_str() != server_url.host_str()
+		|| url.port() != server_url.port()
 		|| !url.username().is_empty()
 		|| url.password().is_some()
-		|| url.port().is_some()
 	{
 		return None;
 	}
-	let path = url.path().trim_end_matches('/');
-	let code = match url.host_str()? {
-		"discord.gg" | "www.discord.gg" => path.strip_prefix('/')?,
-		"discord.com" | "www.discord.com" | "discordapp.com" | "www.discordapp.com" => {
-			path.strip_prefix("/invite/")?
-		}
-		_ => return None,
-	};
+	let code = url.path().trim_end_matches('/').strip_prefix("/invite/")?;
 	valid_code(code).then(|| code.to_owned())
 }
 pub(super) fn input_code(raw: &str) -> Option<String> {
@@ -764,6 +762,7 @@ fn action_button(ui: &mut egui::Ui, button: &Button) -> egui::Response {
 mod tests {
 	#[test]
 	fn localized_invite_stats_do_not_overlap_action() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let prev_lang = crate::i18n::current();
 		crate::i18n::set_current(crate::i18n::Language::German);
 		let online_label = crate::i18n::translate_if_key("server-settings-preview-online");
@@ -798,7 +797,7 @@ mod tests {
 			),
 		);
 		let mut message = test_support::message(1, model::Id(2));
-		message.content = format!("https://discord.gg/{code}");
+		message.content = format!("{}/invite/{code}", model::endpoints::get().origin);
 		let mut avatars = crate::avatars::Avatars::default();
 		let mut requests = Vec::new();
 		let mut action = None;
@@ -868,21 +867,22 @@ mod tests {
 
 	#[test]
 	fn standalone_invites_accept_codes_without_turning_plain_messages_into_cards() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		assert_eq!(
 			super::input_code("  synthetic-123  ").as_deref(),
 			Some("synthetic-123")
 		);
 		assert_eq!(
-			super::input_code("https://discord.gg/synthetic").as_deref(),
+			super::input_code("https://chat.example.com/invite/synthetic").as_deref(),
 			Some("synthetic")
 		);
 		assert!(super::code("synthetic").is_none());
 		for raw in [
 			"",
 			"../bad",
-			"https://discord.gg.evil.test/code",
-			"https://user@discord.gg/code",
-			"https://discord.gg/a/b",
+			"https://chat.example.com.evil.test/invite/code",
+			"https://user@chat.example.com/invite/code",
+			"https://chat.example.com/invite/a/b",
 			"two codes",
 		] {
 			assert!(super::input_code(raw).is_none(), "{raw}");
@@ -891,21 +891,24 @@ mod tests {
 	}
 	#[test]
 	fn invite_urls_are_origin_and_path_checked() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		assert_eq!(
-			super::code("https://discord.gg/abc-123").as_deref(),
+			super::code("https://chat.example.com/invite/abc-123").as_deref(),
 			Some("abc-123")
 		);
 		assert_eq!(
-			super::code("https://discord.com/invite/abc").as_deref(),
+			super::code("chat.example.com/invite/abc").as_deref(),
 			Some("abc")
 		);
 		for bad in [
-			"https://discord.gg.evil.test/abc",
-			"https://discord.gg@evil.test/abc",
-			"https://evil@discord.gg/abc",
-			"https://discord.gg/a/b",
-			"https://discord.gg/%2e%2e",
-			"https://discord.gg/",
+			"https://discord.gg/abc",
+			"https://chat.example.com.evil.test/invite/abc",
+			"https://chat.example.com@evil.test/invite/abc",
+			"https://evil@chat.example.com/invite/abc",
+			"https://chat.example.com/abc",
+			"https://chat.example.com/invite/a/b",
+			"https://chat.example.com/invite/%2e%2e",
+			"https://chat.example.com/invite/",
 		] {
 			assert!(super::code(bad).is_none());
 		}

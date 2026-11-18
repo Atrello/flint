@@ -1210,20 +1210,6 @@ impl MessagingUi {
 				);
 			},
 		);
-		design::group(
-			ui,
-			&crate::i18n::translate("settings-chat-settings-emoji"),
-			|ui| {
-				let mut suggest = !self.hide_nitro_emojis;
-				design::switch(
-					ui,
-					"settings-chat-settings-suggest-nitro-emojis",
-					Some("settings-chat-settings-suggest-nitro-emojis-description"),
-					&mut suggest,
-				);
-				self.hide_nitro_emojis = !suggest;
-			},
-		);
 	}
 
 	/// Built-in presets plus enabled community themes, one swatch each.

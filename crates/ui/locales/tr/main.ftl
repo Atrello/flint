@@ -3521,10 +3521,6 @@ settings-chat-settings-show-channels-you-cannot-currently-access = Şu anda eri�
 settings-chat-settings-show-hidden-channels = Gizli kanalları göster
 # Context: chat_settings
 settings-chat-settings-emoji = Emoji
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis = Nitro gerektiren emojileri öner
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis-description = Nitro olmadan da animasyonlu ve diğer sunuculardaki emojileri : önerilerinde ve seçicide göster. Kapalıyken önerilerde gizlenir ve seçicide kilitlenir.
 # Context: close_control
 settings-close-control-close-settings-esc = Ayarları kapat (Esc)
 # Context: colour_preset_settings

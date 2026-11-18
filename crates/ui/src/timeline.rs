@@ -1,5 +1,5 @@
 use crate::design::LazyHover;
-use crate::markdown::{FormatCache, Formatted, discord_url};
+use crate::markdown::{FormatCache, Formatted, channel_url};
 use client_core::State;
 use egui::RichText;
 use model::{Id, Message};
@@ -4281,7 +4281,7 @@ impl TimelineView {
 														c.id == message.channel
 															&& state.can_view(c.id)
 													})
-													.and_then(|c| discord_url(c, Some(message.id)));
+													.and_then(|c| channel_url(c, Some(message.id)));
 												let open = ui.add_enabled(
 													target.is_some(),
 													egui::Button::new(crate::i18n::translate(
@@ -4704,7 +4704,7 @@ impl TimelineView {
 							let can_delete = state.can_delete(message.channel, id);
 							let link = state
 								.channel(message.channel)
-								.and_then(|channel| discord_url(channel, Some(id)));
+								.and_then(|channel| channel_url(channel, Some(id)));
 							let translate = translatable(message);
 							let buttons = if shift {
 								4 + usize::from(link.is_some())
@@ -7677,6 +7677,7 @@ mod tests {
 	}
 	#[test]
 	fn unsupported_message_fallback_only_requests_confirmation() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		fn button(shape: &egui::Shape) -> Option<egui::Rect> {
 			match shape {
 				egui::Shape::Text(t) if t.galley.job.text == "Open in Discord" => {
@@ -7767,7 +7768,7 @@ mod tests {
 			assert_eq!(
 				view.browser_opening,
 				if allowed {
-					discord_url(&channel, Some(Id(42)))
+					channel_url(&channel, Some(Id(42)))
 				} else {
 					None
 				}
@@ -7777,6 +7778,7 @@ mod tests {
 
 	#[test]
 	fn extra_content_markers_update_layout_and_keep_supported_text() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		fn collect(shape: &egui::Shape, texts: &mut Vec<(String, egui::Rect)>) {
 			match shape {
 				egui::Shape::Text(t) => texts.push((
@@ -7934,7 +7936,7 @@ mod tests {
 				}
 				assert_eq!(
 					view.browser_opening,
-					discord_url(&channel, Some(message.id))
+					channel_url(&channel, Some(message.id))
 				);
 				view.browser_opening = None;
 			}
@@ -7949,6 +7951,7 @@ mod tests {
 
 	#[test]
 	fn quick_reactions_shift_actions_and_double_click_use_existing_paths() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
 			match shape {
 				egui::Shape::Text(t) => out.push((
@@ -8100,7 +8103,7 @@ mod tests {
 			copied,
 			[
 				id.to_string(),
-				discord_url(state.channel(Id(20)).unwrap(), Some(id)).unwrap()
+				channel_url(state.channel(Id(20)).unwrap(), Some(id)).unwrap()
 			]
 		);
 		for events in click(toolbar.right_center() - egui::vec2(14.0, 0.0), shift) {

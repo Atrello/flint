@@ -508,6 +508,7 @@ fn pane_frame(
 /// result's text, ID or link, and that a plugin message action is requested for that message.
 #[test]
 fn result_context_menu_copies_and_offers_plugin_message_actions() {
+	let _ = model::endpoints::configure("https://chat.example.com");
 	let ctx = egui::Context::default();
 	let mut state = state();
 	let mut view = MessagingUi::default();
@@ -568,7 +569,7 @@ fn result_context_menu_copies_and_offers_plugin_message_actions() {
 		("timeline-message-actions-copy-message-id", "90".to_owned()),
 		(
 			"timeline-message-actions-copy-message-link",
-			"https://discord.com/channels/@me/10/90".to_owned(),
+			"https://chat.example.com/channels/@me/10/90".to_owned(),
 		),
 	] {
 		let labels = open(&mut view, &mut state);

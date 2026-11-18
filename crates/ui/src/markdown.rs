@@ -449,7 +449,8 @@ pub fn external_url(input: &str) -> Option<String> {
 	.then(|| url.to_string())
 }
 
-pub(super) fn discord_url(channel: &model::Channel, message: Option<Id>) -> Option<String> {
+/// Permalink to a channel or message on the configured Steel server; `None` before a server is set.
+pub(super) fn channel_url(channel: &model::Channel, message: Option<Id>) -> Option<String> {
 	if channel.id.0 == 0 || message.is_some_and(|id| id.0 == 0) {
 		return None;
 	}
@@ -458,7 +459,11 @@ pub(super) fn discord_url(channel: &model::Channel, message: Option<Id>) -> Opti
 		None if matches!(channel.kind, 1 | 3) => "@me".into(),
 		_ => return None,
 	};
-	let mut url = format!("https://discord.com/channels/{scope}/{}", channel.id);
+	let mut url = format!(
+		"{}/channels/{scope}/{}",
+		model::endpoints::configured()?.origin,
+		channel.id
+	);
 	if let Some(message) = message {
 		url.push('/');
 		url.push_str(&message.to_string());
@@ -474,8 +479,9 @@ pub(super) struct ChatLink {
 }
 
 /// Recognize the raw route, before URL parsing can remove dot segments or escaped dots.
-/// Query/fragment text is preserved on the link but never changes the navigation identity.
-pub(super) fn discord_chat_link(input: &str) -> Option<ChatLink> {
+/// Only the configured Steel server's origin is recognized. Query/fragment text is preserved on
+/// the link but never changes the navigation identity.
+pub(super) fn chat_link(input: &str) -> Option<ChatLink> {
 	if input.len() > 2048
 		|| input
 			.chars()
@@ -484,24 +490,17 @@ pub(super) fn discord_chat_link(input: &str) -> Option<ChatLink> {
 		return None;
 	}
 	let (scheme, rest) = input.split_once("://")?;
-	if !scheme.eq_ignore_ascii_case("https") {
+	let server = model::endpoints::configured()?;
+	let (server_scheme, server_authority) = server.origin.split_once("://")?;
+	if !scheme.eq_ignore_ascii_case(server_scheme) {
 		return None;
 	}
 	let (authority, route) = rest.split_once('/')?;
-	let host = authority.strip_suffix(":443").unwrap_or(authority);
-	if ![
-		"discord.com",
-		"www.discord.com",
-		"ptb.discord.com",
-		"canary.discord.com",
-		"discordapp.com",
-		"www.discordapp.com",
-		"ptb.discordapp.com",
-		"canary.discordapp.com",
-	]
-	.iter()
-	.any(|allowed| host.eq_ignore_ascii_case(allowed))
-	{
+	let authority = authority.strip_suffix(":443").unwrap_or(authority);
+	let server_authority = server_authority
+		.strip_suffix(":443")
+		.unwrap_or(server_authority);
+	if !authority.eq_ignore_ascii_case(server_authority) {
 		return None;
 	}
 	let path_end = route.find(['?', '#']).unwrap_or(route.len());
@@ -568,26 +567,10 @@ pub(super) fn confirm_external_link_noting(
 		*opening = None;
 		return;
 	};
-	let discord = url::Url::parse(&target).is_ok_and(|url| {
-		url.scheme() == "https"
-			&& url.port().is_none()
-			&& url.host_str().is_some_and(|host| {
-				[
-					"discord.com",
-					"discord.gg",
-					"discordapp.com",
-					"discordapp.net",
-				]
-				.iter()
-				.any(|domain| {
-					host == *domain
-						|| host
-							.strip_suffix(domain)
-							.is_some_and(|prefix| prefix.ends_with('.'))
-				})
-			})
+	let server = url::Url::parse(&target).is_ok_and(|url| {
+		url.scheme() == "https" && url.host_str().is_some_and(model::endpoints::is_server_host)
 	});
-	if !truncated && (!confirm_links || discord) {
+	if !truncated && (!confirm_links || server) {
 		ctx.open_url(egui::OpenUrl::new_tab(target));
 		*opening = None;
 		return;
@@ -1333,7 +1316,7 @@ impl Formatted {
 		let normalized = external_url(target)?;
 		// Keep the original spelling whenever normalization could yield a chat route.
 		// Otherwise a raw /../ or /%2e%2e/ attack becomes an internal link at click time.
-		let url = if discord_chat_link(&normalized).is_some() {
+		let url = if chat_link(&normalized).is_some() {
 			target.to_owned()
 		} else {
 			normalized
@@ -1992,9 +1975,7 @@ impl Formatted {
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-						let message_link = native_message_link
-							.then(|| discord_chat_link(url))
-							.flatten();
+						let message_link = native_message_link.then(|| chat_link(url)).flatten();
 						let pill = message_link.as_ref().map(|link| {
 							crate::channel_pill::Pill::message(
 								link,
@@ -2356,7 +2337,7 @@ impl Formatted {
 			// Bare Discord message links keep the same channel jump pill as ordinary text.
 			if let Some(link) = style.link
 				&& text == &self.links[link]
-				&& let Some(jump) = discord_chat_link(text).filter(|jump| jump.message.is_some())
+				&& let Some(jump) = chat_link(text).filter(|jump| jump.message.is_some())
 			{
 				let label = channel_reference_name(jump.channel, render.channels, render.source)
 					.map_or_else(|| "#unknown-channel".into(), |name| format!("#{name}"));
@@ -3155,7 +3136,7 @@ impl Formatted {
 						.link
 						.filter(|_| style.message_link)
 						.and_then(|index| self.links.get(index))
-						.and_then(|url| discord_chat_link(url))
+						.and_then(|url| chat_link(url))
 						.map(|link| {
 							crate::channel_pill::Pill::message(
 								&link,
@@ -3923,19 +3904,11 @@ mod tests {
 	}
 
 	#[test]
-	fn discord_chat_links_validate_origin_route_and_ids() {
-		for host in [
-			"discord.com",
-			"www.discord.com",
-			"ptb.discord.com",
-			"canary.discord.com",
-			"discordapp.com",
-			"www.discordapp.com",
-			"ptb.discordapp.com",
-			"canary.discordapp.com",
-		] {
+	fn chat_links_validate_origin_route_and_ids() {
+		let _ = model::endpoints::configure("https://chat.example.com");
+		for host in ["chat.example.com", "CHAT.example.com:443"] {
 			assert_eq!(
-				discord_chat_link(&format!("https://{host}/channels/1/2/3?jump=true#message")),
+				chat_link(&format!("https://{host}/channels/1/2/3?jump=true#message")),
 				Some(ChatLink {
 					guild: Some(Id(1)),
 					channel: Id(2),
@@ -3944,7 +3917,7 @@ mod tests {
 			);
 		}
 		assert_eq!(
-			discord_chat_link("https://discord.com/channels/@me/2/"),
+			chat_link("https://chat.example.com/channels/@me/2/"),
 			Some(ChatLink {
 				guild: None,
 				channel: Id(2),
@@ -3952,7 +3925,7 @@ mod tests {
 			})
 		);
 		assert_eq!(
-			discord_chat_link("HTTPS://DISCORD.COM:443/channels/1/2"),
+			chat_link("HTTPS://CHAT.EXAMPLE.COM:443/channels/1/2"),
 			Some(ChatLink {
 				guild: Some(Id(1)),
 				channel: Id(2),
@@ -3960,7 +3933,7 @@ mod tests {
 			})
 		);
 		assert_eq!(
-			discord_chat_link("https://discord.com/channels/10/20/30?jump=1#message"),
+			chat_link("https://chat.example.com/channels/10/20/30?jump=1#message"),
 			Some(ChatLink {
 				guild: Some(Id(10)),
 				channel: Id(20),
@@ -3968,7 +3941,7 @@ mod tests {
 			})
 		);
 		assert_eq!(
-			discord_chat_link("https://discord.com/channels/10/20/30?topic=café#メッセージ"),
+			chat_link("https://chat.example.com/channels/10/20/30?topic=café#メッセージ"),
 			Some(ChatLink {
 				guild: Some(Id(10)),
 				channel: Id(20),
@@ -3976,7 +3949,7 @@ mod tests {
 			})
 		);
 		assert_eq!(
-			discord_chat_link("https://discord.com/channels/@me/20/30/?q=%2F%23#message"),
+			chat_link("https://chat.example.com/channels/@me/20/30/?q=%2F%23#message"),
 			Some(ChatLink {
 				guild: None,
 				channel: Id(20),
@@ -3984,7 +3957,7 @@ mod tests {
 			})
 		);
 		assert_eq!(
-			discord_chat_link("https://discord.com/channels/1/2/18446744073709551615"),
+			chat_link("https://chat.example.com/channels/1/2/18446744073709551615"),
 			Some(ChatLink {
 				guild: Some(Id(1)),
 				channel: Id(2),
@@ -3992,53 +3965,52 @@ mod tests {
 			})
 		);
 		for target in [
-			"http://discord.com/channels/1/2",
-			"https://discord.com.evil.example/channels/1/2",
-			"https://evil.discord.com/channels/1/2",
-			"https://discord.gg/channels/1/2",
-			"https://discord.com@evil.example/channels/1/2",
-			"https://user@discord.com/channels/1/2",
-			"https://discord.com:444/channels/1/2",
-			"https://discord.com/invite/example",
-			"https://discord.com/channels/1",
-			"https://discord.com/channels/1/2/3/4",
-			"https://discord.com/channels/0/2",
-			"https://discord.com/channels/1/0",
-			"https://discord.com/channels/1/2/0",
-			"https://discord.com/channels/1/+2",
-			"https://discord.com/channels/1/18446744073709551616",
-			"https://discord.com/channels/1/%32",
-			"https://discord.com/channels/1/2\n",
-			"https://discord.com\\channels/1/2",
-			"https://discord.com./channels/1/2/3",
-			"https://discord.com:0443/channels/1/2/3",
-			"https://discord.com:443:443/channels/1/2/3",
-			"https://discord.com/CHANNELS/1/2/3",
-			"https://discord.com/channels/@ME/2/3",
-			"https://discord.com/channels/01/2/3",
-			"https://discord.com/channels/1/02/3",
-			"https://discord.com/channels/1/2/03",
-			"https://discord.com/channels/1/2//",
-			"https://discord.com/channels/1//2/3",
-			"https://discord.com//channels/1/2/3",
-			"https://discord.com/channels/1/2/3/extra?jump=1",
-			"https://discord.com/not/../channels/10/20/30?x",
-			"https://discord.com/./channels/1/2/3",
-			"https://discord.com/channels/1/4/../2/3",
-			"https://discord.com/channels/1/%2e/2/3",
-			"https://discord.com/not/%2e%2e/channels/1/2/3#message",
-			"https://discord.com/channels/1/2/3/%2E%2E",
-			"https://discord.com/channels/1/%2F2/3",
-			"https://discord%2Ecom/channels/1/2/3",
-			"https://discord.com/channels/1/２/3",
-			"https://discord.com/channels/1/2/3?q=%",
-			"https://discord.com/channels/1/2/3#%zz",
+			"http://chat.example.com/channels/1/2",
+			"https://chat.example.com.evil.example/channels/1/2",
+			"https://evil.chat.example.com/channels/1/2",
+			"https://chat.example.com@evil.example/channels/1/2",
+			"https://user@chat.example.com/channels/1/2",
+			"https://chat.example.com:444/channels/1/2",
+			"https://chat.example.com/invite/example",
+			"https://chat.example.com/channels/1",
+			"https://chat.example.com/channels/1/2/3/4",
+			"https://chat.example.com/channels/0/2",
+			"https://chat.example.com/channels/1/0",
+			"https://chat.example.com/channels/1/2/0",
+			"https://chat.example.com/channels/1/+2",
+			"https://chat.example.com/channels/1/18446744073709551616",
+			"https://chat.example.com/channels/1/%32",
+			"https://chat.example.com/channels/1/2\n",
+			"https://chat.example.com\\channels/1/2",
+			"https://chat.example.com./channels/1/2/3",
+			"https://chat.example.com:0443/channels/1/2/3",
+			"https://chat.example.com:443:443/channels/1/2/3",
+			"https://chat.example.com/CHANNELS/1/2/3",
+			"https://chat.example.com/channels/@ME/2/3",
+			"https://chat.example.com/channels/01/2/3",
+			"https://chat.example.com/channels/1/02/3",
+			"https://chat.example.com/channels/1/2/03",
+			"https://chat.example.com/channels/1/2//",
+			"https://chat.example.com/channels/1//2/3",
+			"https://chat.example.com//channels/1/2/3",
+			"https://chat.example.com/channels/1/2/3/extra?jump=1",
+			"https://chat.example.com/not/../channels/10/20/30?x",
+			"https://chat.example.com/./channels/1/2/3",
+			"https://chat.example.com/channels/1/4/../2/3",
+			"https://chat.example.com/channels/1/%2e/2/3",
+			"https://chat.example.com/not/%2e%2e/channels/1/2/3#message",
+			"https://chat.example.com/channels/1/2/3/%2E%2E",
+			"https://chat.example.com/channels/1/%2F2/3",
+			"https://chat%2Eexample.com/channels/1/2/3",
+			"https://chat.example.com/channels/1/２/3",
+			"https://chat.example.com/channels/1/2/3?q=%",
+			"https://chat.example.com/channels/1/2/3#%zz",
 		] {
-			assert!(discord_chat_link(target).is_none(), "{target}");
+			assert!(chat_link(target).is_none(), "{target}");
 		}
 		assert!(
-			discord_chat_link(&format!(
-				"https://discord.com/channels/1/2?{}",
+			chat_link(&format!(
+				"https://chat.example.com/channels/1/2?{}",
 				"x".repeat(2048)
 			))
 			.is_none()
@@ -4062,53 +4034,57 @@ mod tests {
 				last_message: None,
 			};
 			assert_eq!(
-				discord_url(&channel, None).as_deref(),
-				Some("https://discord.com/channels/20/10")
+				channel_url(&channel, None).as_deref(),
+				Some("https://chat.example.com/channels/20/10")
 			);
 			for kind in [10, 11, 12, 13, 14, 15, 16, 255] {
 				channel.kind = kind;
 				assert_eq!(
-					discord_url(&channel, Some(Id(30))).as_deref(),
-					Some("https://discord.com/channels/20/10/30")
+					channel_url(&channel, Some(Id(30))).as_deref(),
+					Some("https://chat.example.com/channels/20/10/30")
 				);
 			}
 			for kind in [1, 3] {
 				channel.kind = kind;
 				assert!(
-					discord_url(&channel, None).is_none(),
+					channel_url(&channel, None).is_none(),
 					"DMs cannot have a guild route"
 				);
 				channel.guild = None;
 				assert_eq!(
-					discord_url(&channel, Some(Id(30))).as_deref(),
-					Some("https://discord.com/channels/@me/10/30")
+					channel_url(&channel, Some(Id(30))).as_deref(),
+					Some("https://chat.example.com/channels/@me/10/30")
 				);
 				channel.guild = Some(Id(20));
 			}
 			channel.kind = 0;
 			channel.guild = None;
-			assert!(discord_url(&channel, None).is_none());
+			assert!(channel_url(&channel, None).is_none());
 			channel.guild = Some(Id(0));
-			assert!(discord_url(&channel, None).is_none());
+			assert!(channel_url(&channel, None).is_none());
 			channel.guild = Some(Id(u64::MAX));
 			channel.id = Id(u64::MAX);
 			assert_eq!(
-				discord_url(&channel, Some(Id(u64::MAX))).unwrap(),
-				format!("https://discord.com/channels/{0}/{0}/{0}", u64::MAX)
+				channel_url(&channel, Some(Id(u64::MAX))).unwrap(),
+				format!("https://chat.example.com/channels/{0}/{0}/{0}", u64::MAX)
 			);
-			assert!(discord_url(&channel, Some(Id(0))).is_none());
+			assert!(channel_url(&channel, Some(Id(0))).is_none());
 			channel.id = Id(0);
-			assert!(discord_url(&channel, None).is_none());
+			assert!(channel_url(&channel, None).is_none());
 		}
 
 		{
 			for (target, confirm_links, opens) in [
-				("https://discord.com/channels/@me/1", true, true),
-				("https://discord.gg/example", true, true),
-				("https://cdn.discordapp.com/attachments/example", true, true),
-				("https://discord.com.evil.example/", true, false),
-				("https://evildiscord.com/", true, false),
-				("https://discord.com@evil.example/", false, false),
+				("https://chat.example.com/channels/@me/1", true, true),
+				("https://chat.example.com/example", true, true),
+				(
+					"https://chat.example.com/cdn/attachments/example",
+					true,
+					true,
+				),
+				("https://chat.example.com.evil.example/", true, false),
+				("https://evilchat.example.com/", true, false),
+				("https://chat.example.com@evil.example/", false, false),
 				("javascript:alert(1)", false, false),
 				("https://example.com/", true, false),
 				("https://example.com/", false, true),
@@ -4133,15 +4109,16 @@ mod tests {
 
 	#[test]
 	fn message_link_raw_destinations_survive_normalization_without_laundering_paths() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		for target in [
-			"https://discord.com/not/../channels/10/20/30?x",
-			"https://discord.com/./channels/10/20/30",
-			"https://discord.com/not/%2e%2e/channels/10/20/30#message",
-			"https://discord.com/channels/10/40/../20/30",
-			"https://discord%2Ecom/channels/10/20/30",
+			"https://chat.example.com/not/../channels/10/20/30?x",
+			"https://chat.example.com/./channels/10/20/30",
+			"https://chat.example.com/not/%2e%2e/channels/10/20/30#message",
+			"https://chat.example.com/channels/10/40/../20/30",
+			"https://chat%2Eexample.com/channels/10/20/30",
 		] {
 			assert!(
-				discord_chat_link(&external_url(target).unwrap()).is_some(),
+				chat_link(&external_url(target).unwrap()).is_some(),
 				"test must exercise a normalizable attack: {target}"
 			);
 			for source in [
@@ -4151,18 +4128,19 @@ mod tests {
 			] {
 				let parsed = Formatted::parse(&source);
 				assert_eq!(parsed.links, [target], "{source}");
-				assert!(discord_chat_link(&parsed.links[0]).is_none(), "{source}");
+				assert!(chat_link(&parsed.links[0]).is_none(), "{source}");
 			}
 		}
 	}
 
 	#[test]
 	fn message_link_chips_use_autolink_syntax_not_normalized_label_equality() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		for target in [
-			"https://discord.com/channels/10/20/30",
-			"HTTPS://DISCORD.COM:443/channels/10/20/30",
-			"https://discord.com/channels/10/20/30?jump=1#message",
-			"https://discord.com/channels/10/20/30?topic=café#メッセージ",
+			"https://chat.example.com/channels/10/20/30",
+			"HTTPS://CHAT.EXAMPLE.COM:443/channels/10/20/30",
+			"https://chat.example.com/channels/10/20/30?jump=1#message",
+			"https://chat.example.com/channels/10/20/30?topic=café#メッセージ",
 		] {
 			for source in [target.to_owned(), format!("<{target}>")] {
 				let parsed = Formatted::parse(&source);
@@ -4201,7 +4179,7 @@ mod tests {
 		}
 		let bounded = Formatted::parse(
 			&(0..MAX_LINKS + 8)
-				.map(|id| format!("https://discord.com/channels/10/20/{} ", id + 1))
+				.map(|id| format!("https://chat.example.com/channels/10/20/{} ", id + 1))
 				.collect::<String>(),
 		);
 		assert_eq!(bounded.links.len(), MAX_LINKS);
@@ -4313,10 +4291,11 @@ mod tests {
 
 	#[test]
 	fn message_chips_and_masked_labels_activate_with_enter_and_space() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		for target in [
-			"https://discord.com/channels/10/20/100",
-			"HTTPS://DISCORD.COM:443/channels/10/20/100?jump=1#message",
-			"https://discord.com/channels/10/20/100?topic=café#メッセージ",
+			"https://chat.example.com/channels/10/20/100",
+			"HTTPS://CHAT.EXAMPLE.COM:443/channels/10/20/100?jump=1#message",
+			"https://chat.example.com/channels/10/20/100?topic=café#メッセージ",
 		] {
 			for (source, native, label) in [
 				(target.to_owned(), true, "getting-started"),
@@ -4366,7 +4345,8 @@ mod tests {
 
 	#[test]
 	fn message_chips_stay_hidden_and_inert_until_spoilers_reveal_and_code_stays_literal() {
-		let target = "https://discord.com/channels/10/20/100?jump=1#message";
+		let _ = model::endpoints::configure("https://chat.example.com");
+		let target = "https://chat.example.com/channels/10/20/100?jump=1#message";
 		for source in [format!("`{target}`"), format!("```\n{target}\n```")] {
 			let mut ui = MessageLinkTestUi::new(&source);
 			for events in [
@@ -4433,7 +4413,8 @@ mod tests {
 
 	#[test]
 	fn adjacent_identical_links_keep_separate_occurrences() {
-		let target = "https://discord.com/channels/10/20/30";
+		let _ = model::endpoints::configure("https://chat.example.com");
+		let target = "https://chat.example.com/channels/10/20/30";
 		let adjacent = Formatted::parse(&format!("<{target}><{target}>"));
 		assert_eq!(adjacent.links, [target]);
 		let occurrences = link_occurrences(&adjacent);
@@ -5072,6 +5053,7 @@ mod tests {
 
 	#[test]
 	fn reference_pills_wrap_and_activate_one_destination_with_keyboard_or_pointer() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let mut state = test_support::demo_state();
 		let mut other = state.guilds[0].clone();
 		other.id = Id(99);
@@ -5097,43 +5079,43 @@ mod tests {
 				Some(Id(42)),
 			),
 			(
-				"https://discord.com/channels/10/20/100",
+				"https://chat.example.com/channels/10/20/100",
 				"#getting-started > message",
 				"getting-started",
 				None,
 			),
 			(
-				"https://discord.com/channels/10/28/100",
+				"https://chat.example.com/channels/10/28/100",
 				"Thread: Introductions thread > message",
 				"Introductions thread",
 				None,
 			),
 			(
-				"https://discord.com/channels/10/26/100",
+				"https://chat.example.com/channels/10/26/100",
 				"Forum: ideas > message",
 				"ideas",
 				None,
 			),
 			(
-				"https://discord.com/channels/10/42/100",
+				"https://chat.example.com/channels/10/42/100",
 				"Forum: ideas > Different model weights for differently powerful phones",
 				"Different model weights for differently powerful phones",
 				None,
 			),
 			(
-				"https://discord.com/channels/99/777/100",
+				"https://chat.example.com/channels/99/777/100",
 				"Other synthetic server > message",
 				"Other synthetic server",
 				None,
 			),
 			(
-				"https://discord.com/channels/10/777/100",
+				"https://chat.example.com/channels/10/777/100",
 				"#unknown-channel > message",
 				"unknown-channel",
 				None,
 			),
 			(
-				"[a custom link label](https://discord.com/channels/10/20/100)",
+				"[a custom link label](https://chat.example.com/channels/10/20/100)",
 				"a custom link label",
 				"a custom link label",
 				None,
@@ -5233,7 +5215,7 @@ mod tests {
 				// The URL may only back an invisible selection slot, never painted glyphs.
 				assert!(
 					!texts.iter().any(|text| {
-						text.galley.text().contains("https://discord.com")
+						text.galley.text().contains("https://chat.example.com")
 							&& text
 								.galley
 								.rows
@@ -5307,6 +5289,7 @@ mod tests {
 
 	#[test]
 	fn concealed_reference_pills_hide_destination_labels_and_guild_artwork_requests() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let mut state = test_support::demo_state();
 		let mut other = state.guilds[0].clone();
 		other.id = Id(99);
@@ -5317,7 +5300,7 @@ mod tests {
 			channel: Id(20),
 		};
 		let parsed =
-			Formatted::parse("before ||<#27> https://discord.com/channels/99/777/100|| after");
+			Formatted::parse("before ||<#27> https://chat.example.com/channels/99/777/100|| after");
 		let ctx = egui::Context::default();
 		crate::icons::install(&ctx);
 		ctx.enable_accesskit();
@@ -5377,7 +5360,8 @@ mod tests {
 
 	#[test]
 	fn pill_metadata_fingerprints_cover_every_rendered_source_byte() {
-		let tail = "<#28> https://discord.com/channels/10/27/501";
+		let _ = model::endpoints::configure("https://chat.example.com");
+		let tail = "<#28> https://chat.example.com/channels/10/27/501";
 		for (prefix, rendered) in [
 			("x".repeat(MAX_INPUT - tail.len()), true),
 			("x".repeat(MAX_INPUT), false),
@@ -6784,9 +6768,10 @@ mod tests {
 
 	#[test]
 	fn rtl_message_jump_pill_and_mentions_keep_native_accessibility_actions() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let ctx = egui::Context::default();
 		crate::fonts::install(&ctx);
-		let url = "https://discord.com/channels/1/2/3";
+		let url = "https://chat.example.com/channels/1/2/3";
 		let parsed = Formatted::parse(&format!(
 			"مرحبا {url} <@42> <#2> [masked](https://example.com) ||SECRET_PRIVATE|| نهاية"
 		));

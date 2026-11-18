@@ -180,7 +180,12 @@ impl State {
 			return None;
 		}
 		let url = self.created_invite(guild)?.to_owned();
-		let code = url.strip_prefix("https://discord.gg/")?.to_owned();
+		let code = url
+			.strip_prefix(&format!(
+				"{}/invite/",
+				model::endpoints::configured()?.origin
+			))?
+			.to_owned();
 		self.server_actions.sequence = self.server_actions.sequence.wrapping_add(1);
 		let request = self.server_actions.sequence;
 		self.send_sequence = self.send_sequence.wrapping_add(1);
@@ -529,7 +534,7 @@ impl State {
 						self.server_actions.invite = Some((
 							guild,
 							channel,
-							format!("https://discord.gg/{}", code.unwrap()),
+							model::endpoints::absolute_url(&format!("/invite/{}", code.unwrap())),
 							Instant::now(),
 							options,
 						));
@@ -779,6 +784,7 @@ mod tests {
 
 	#[test]
 	fn server_invites_options_friends_acknowledgement_and_cancellation() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let mut state = state();
 		let friend = model::User {
 			primary_guild: None,
@@ -855,7 +861,7 @@ mod tests {
 		message.channel = channel.id;
 		message.author = state.user.clone().unwrap();
 		message.nonce = Some(nonce);
-		message.content = "https://discord.gg/invite_test".into();
+		message.content = "https://chat.example.com/invite/invite_test".into();
 		state
 			.apply_server_action(Event::InviteSent {
 				guild,
@@ -905,6 +911,7 @@ mod tests {
 	}
 	#[test]
 	fn server_actions_scope_permissions_and_confirmed_removal() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let mut owner = state();
 		assert!(!owner.can_delete_server(Id(2)));
 		assert!(owner.delete_server(Id(2)).is_none());
@@ -922,7 +929,7 @@ mod tests {
 		finish(&mut state, invite, Ok(Some("safe-code_1".into())));
 		assert_eq!(
 			state.created_invite(Id(2)),
-			Some("https://discord.gg/safe-code_1")
+			Some("https://chat.example.com/invite/safe-code_1")
 		);
 		assert_eq!(state.created_invite(Id(8)), None);
 		let invite = state.create_server_invite(Id(2), Id(3)).unwrap();
@@ -955,6 +962,7 @@ mod tests {
 	}
 	#[test]
 	fn server_actions_reject_stale_sessions_and_keep_rejoined_guilds() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		let mut state = state();
 		let leave = state.leave_server(Id(2)).unwrap();
 		state.observe_server_joined(Id(2));

@@ -3520,10 +3520,6 @@ settings-chat-settings-show-channels-you-cannot-currently-access = Mostrar canai
 settings-chat-settings-show-hidden-channels = Mostrar canais ocultos
 # Context: chat_settings
 settings-chat-settings-emoji = Emojis
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis = Sugerir emojis que exigem Nitro
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis-description = Oferecer emojis animados e de outros servidores nas sugestões de : e no seletor sem Nitro. Quando desativado, eles ficam ocultos nas sugestões e bloqueados no seletor.
 # Context: close_control
 settings-close-control-close-settings-esc = Fechar configurações (Esc)
 # Context: colour_preset_settings

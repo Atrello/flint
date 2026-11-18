@@ -800,16 +800,6 @@ impl State {
 				|| (!emoji.animated
 					&& self.channel(channel).and_then(|target| target.guild) == Some(source)))
 	}
-	/// Flint is self-hosted and nothing is paywalled, so animated and other-server emoji are
-	/// always native. The Nitro gate that remains is only the user's own opt-out.
-	pub fn custom_emoji_requires_nitro(
-		&self,
-		_channel: Id,
-		_source: Id,
-		_emoji: &CustomEmoji,
-	) -> bool {
-		false
-	}
 	/// Local eligibility for an emoji borrowed from `source`'s catalog. Discord still
 	/// decides account entitlements, including Nitro; this is not a send guarantee.
 	pub fn custom_emoji_unavailable_reason(

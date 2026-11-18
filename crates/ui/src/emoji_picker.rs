@@ -415,8 +415,6 @@ enum Used {
 }
 
 pub(crate) struct Picker {
-	/// Lock custom emoji that need Nitro instead of offering them through image sharing.
-	pub hide_nitro_emojis: bool,
 	/// Device preference: resting on the GIF button loads the picker home before it opens.
 	pub preload: bool,
 	stickers: crate::stickers::Browser,
@@ -446,7 +444,6 @@ impl Default for Picker {
 	fn default() -> Self {
 		// Initialize the static catalog during application creation, outside rendering.
 		Self {
-			hide_nitro_emojis: false,
 			preload: false,
 			stickers: crate::stickers::Browser::default(),
 			reaction: None,
@@ -968,29 +965,12 @@ impl Picker {
 		}
 	}
 
-	/// The user opted out of emoji they cannot use natively without Nitro.
-	fn nitro_locked(
-		&self,
-		state: &State,
-		custom: Option<(&model::Guild, &model::CustomEmoji)>,
-	) -> bool {
-		self.hide_nitro_emojis
-			&& custom.is_some_and(|(guild, emoji)| {
-				self.channel.is_some_and(|channel| {
-					state.custom_emoji_requires_nitro(channel, guild.id, emoji)
-				})
-			})
-	}
-
 	fn can_pick(
 		&self,
 		state: &State,
 		emoji: &model::ReactionEmoji,
 		custom: Option<(&model::Guild, &model::CustomEmoji)>,
 	) -> bool {
-		if self.nitro_locked(state, custom) {
-			return false;
-		}
 		if self.shares_emoji(state, emoji, custom) {
 			return self.channel.is_some_and(|channel| state.can_send(channel));
 		}
@@ -1641,17 +1621,9 @@ impl Picker {
 												let response = if enabled {
 													response
 												} else {
-													response.on_hover_text(
-														if self.nitro_locked(state, custom) {
-															crate::i18n::translate(
-																"emoji-picker-popup-requires-nitro",
-															)
-														} else {
-															crate::i18n::translate(
-																"emoji-picker-popup-cannot-add-this-reaction-right-now",
-															)
-														},
-													)
+													response.on_hover_text(crate::i18n::translate(
+														"emoji-picker-popup-cannot-add-this-reaction-right-now",
+													))
 												};
 												if response.hovered() || response.has_focus() {
 													hovered = Some((image, name, code));
@@ -1794,17 +1766,6 @@ impl Picker {
 																			custom,
 																		)
 																		.map(str::to_owned)
-																})
-																.or_else(|| {
-																	self.nitro_locked(
-																		state,
-																		custom_emoji,
-																	)
-																	.then(|| {
-																		crate::i18n::translate(
-																			"emoji-picker-popup-requires-nitro",
-																		)
-																	})
 																});
 															let enabled = self.can_pick(
 																state,
@@ -2997,7 +2958,7 @@ mod tests {
 	fn nitro_opt_out_does_not_lock_emoji_for_entitled_accounts() {
 		let mut state = test_support::demo_state();
 		state.premium_type = 0;
-		let mut picker = Picker {
+		let picker = Picker {
 			channel: state.selected,
 			..Default::default()
 		};
@@ -3010,21 +2971,7 @@ mod tests {
 			id: Some(custom.id),
 			name: Some(custom.name.clone()),
 		};
-		// Default: offered through built-in image sharing.
-		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
-		picker.hide_nitro_emojis = true;
-		// Every account is entitled, so the old Nitro opt-out no longer locks anything.
-		assert!(!picker.nitro_locked(&state, Some((source, custom))));
-		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
-		let still = model::CustomEmoji {
-			animated: false,
-			..custom.clone()
-		};
-		assert!(!picker.nitro_locked(&state, Some((source, &still))));
-		assert!(picker.can_pick(&state, &emoji, Some((source, &still))));
-		state.premium_type = 2;
-		let (source, custom) = matches.get(&state, 0).unwrap();
-		assert!(!picker.nitro_locked(&state, Some((source, custom))));
+		// Every account is entitled, so animated custom emoji are offered through image sharing.
 		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
 	}
 

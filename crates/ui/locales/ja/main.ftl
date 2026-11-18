@@ -3521,10 +3521,6 @@ settings-chat-settings-show-channels-you-cannot-currently-access = 現在アク�
 settings-chat-settings-show-hidden-channels = 隠しチャンネルを表示する
 # Context: chat_settings
 settings-chat-settings-emoji = 絵文字
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis = Nitroが必要な絵文字を候補に表示
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis-description = Nitroがなくても、アニメーション絵文字や他のサーバーの絵文字を : の候補とピッカーに表示します。オフにすると候補から隠され、ピッカーではロックされます。
 # Context: close_control
 settings-close-control-close-settings-esc = 設定を閉じる (Esc)
 # Context: colour_preset_settings

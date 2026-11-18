@@ -3550,10 +3550,6 @@ settings-chat-settings-show-channels-you-cannot-currently-access = Zobrazit kan�
 settings-chat-settings-show-hidden-channels = Zobrazit skryté kanály
 # Context: chat_settings
 settings-chat-settings-emoji = Emoji
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis = Navrhovat emoji vyžadující Nitro
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis-description = Nabízet animované emoji a emoji z jiných serverů v návrzích : a ve výběru i bez Nitra. Když je vypnuto, jsou skryté v návrzích a zamčené ve výběru.
 # Context: close_control
 settings-close-control-close-settings-esc = Zavřít nastavení (Esc)
 # Context: colour_preset_settings

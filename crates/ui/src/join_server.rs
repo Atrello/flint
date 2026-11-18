@@ -17,7 +17,7 @@ fn invite_input(ui: &mut egui::Ui, text: &mut String, focus: bool) -> egui::Resp
 	let response = ui.add_sized(
 		[ui.available_width(), 48.0],
 		egui::TextEdit::singleline(text)
-			.hint_text("https://discord.gg/hTKzmak")
+			.hint_text("Invite link or code")
 			.font(egui::FontId::proportional(16.0))
 			.align(egui::Align2::LEFT_CENTER)
 			.frame(
@@ -772,7 +772,7 @@ impl JoinDialog {
 					))
 					.size(13.0)
 					.color(colors.link),
-					"https://discord.com/servers",
+					model::endpoints::absolute_url("/"),
 				);
 			});
 		(ready, member, loading, accepted, parsed)
@@ -981,6 +981,7 @@ mod tests {
 	}
 	#[test]
 	fn join_dialog_checks_then_confirms_once_and_clears_on_session_change() {
+		let _ = model::endpoints::configure("https://chat.example.com");
 		for (light, size) in [
 			(false, egui::vec2(960.0, 760.0)),
 			(true, egui::vec2(320.0, 760.0)),
@@ -999,7 +1000,7 @@ mod tests {
 			};
 			let mut dialog = JoinDialog::default();
 			dialog.open(state.generation);
-			dialog.input = "https://discord.gg/synthetic".into();
+			dialog.input = "https://chat.example.com/invite/synthetic".into();
 			let mut commands = vec![];
 			for _ in 0..3 {
 				frame(&ctx, &mut dialog, &mut state, &mut commands, size, vec![]);

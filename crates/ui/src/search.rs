@@ -1655,7 +1655,7 @@ impl SearchUi {
 			}
 			if let Some(link) = state
 				.channel(hit.channel)
-				.and_then(|channel| crate::markdown::discord_url(channel, Some(hit.id)))
+				.and_then(|channel| crate::markdown::channel_url(channel, Some(hit.id)))
 				&& ui
 					.button(crate::i18n::translate(
 						"timeline-message-actions-copy-message-link",

@@ -3521,10 +3521,6 @@ settings-chat-settings-show-channels-you-cannot-currently-access = Показа�
 settings-chat-settings-show-hidden-channels = Показать скрытые каналы
 # Context: chat_settings
 settings-chat-settings-emoji = Эмодзи
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis = Предлагать эмодзи, требующие Nitro
-# Context: chat_settings
-settings-chat-settings-suggest-nitro-emojis-description = Показывать анимированные эмодзи и эмодзи других серверов в подсказках : и в окне выбора без Nitro. Если выключено, они скрыты из подсказок и заблокированы в окне выбора.
 # Context: close_control
 settings-close-control-close-settings-esc = Закрыть настройки (Esc)
 # Context: colour_preset_settings
