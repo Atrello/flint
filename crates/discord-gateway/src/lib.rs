@@ -11,7 +11,6 @@ mod presence;
 mod recovery_tests;
 mod thread_events;
 mod voice;
-#[cfg(debug_assertions)]
 use client_core::{
 	Event, MAX_NAV,
 	auth::{Failure, SessionSecret},
