@@ -1,0 +1,26 @@
+[package]
+name = "flint-lite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Slim Flint client for friends: chat, friends, groups and peer-to-peer screen share, on Steel"
+
+[dependencies]
+eframe.workspace = true
+egui.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+dirs.workspace = true
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+xcap = "0.9"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+webrtc = "0.14"
+bytes = "1"
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
+
+[lints]
+workspace = true
