@@ -42,6 +42,8 @@ impl ImageShare {
 		if url.len() > 160 {
 			return None;
 		}
+		let discord = crate::endpoints::discord_form(url);
+		let url = &*discord;
 		let asset = if let Some(path) = url.strip_prefix("https://cdn.discordapp.com/emojis/") {
 			let (id, extension) = path.split_once('.')?;
 			Self::Emoji {

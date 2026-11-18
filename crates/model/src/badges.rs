@@ -86,6 +86,7 @@ pub fn hideable(number: u32) -> bool {
 
 /// Bounded `https://cdn.discordapp.com` or `media.discordapp.net` artwork.
 pub fn valid_badge_url(url: &str) -> bool {
+	let url = &*crate::endpoints::discord_form(url);
 	url.len() <= MAX_BADGE_URL
 		&& [
 			"https://cdn.discordapp.com/",

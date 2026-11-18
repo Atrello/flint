@@ -122,6 +122,19 @@ pub fn absolute_url(value: &str) -> String {
 	}
 }
 
+/// Maps a media URL on the configured server (`{origin}/cdn/...`) back to the Discord-shaped
+/// address its path came from, so validators keep one set of rules. Other URLs are unchanged.
+pub fn discord_form(url: &str) -> std::borrow::Cow<'_, str> {
+	if let Some(endpoints) = ENDPOINTS.get()
+		&& let Some(rest) = url
+			.strip_prefix(endpoints.origin.as_str())
+			.and_then(|rest| rest.strip_prefix("/cdn/"))
+	{
+		return format!("https://{}/{rest}", DISCORD_MEDIA_HOSTS[0]).into();
+	}
+	url.into()
+}
+
 /// Whether `url` is media this client fetches from the configured server (or from a Discord
 /// media host it has not yet rewritten).
 pub fn is_cdn_url(url: &str) -> bool {
@@ -200,6 +213,14 @@ mod tests {
 			"https://cdn.discordapp.com/attachments/1/2/a.png"
 		));
 		assert!(!is_cdn_url("https://chat.example.com/api/v10/users/@me"));
+		assert_eq!(
+			discord_form("https://chat.example.com/cdn/emojis/9.gif?size=64"),
+			"https://cdn.discordapp.com/emojis/9.gif?size=64"
+		);
+		assert_eq!(
+			discord_form("https://chat.example.com/cdn.evil/x"),
+			"https://chat.example.com/cdn.evil/x"
+		);
 	}
 
 	#[test]
