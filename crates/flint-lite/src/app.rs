@@ -46,6 +46,9 @@ pub struct App {
 	in_call: bool,
 	call_peers: Vec<String>,
 	speaking: HashMap<String, u64>,
+	muted: bool,
+	ringing_out: Vec<String>,
+	ringing_in: Vec<String>,
 }
 
 impl App {
@@ -81,6 +84,9 @@ impl App {
 			in_call: false,
 			call_peers: Vec::new(),
 			speaking: HashMap::new(),
+			muted: false,
+			ringing_out: Vec::new(),
+			ringing_in: Vec::new(),
 		}
 	}
 
@@ -134,9 +140,16 @@ impl App {
 					list.sort_by_key(|m| m.id.parse::<u64>().unwrap_or(0));
 				}
 			}
-			Ev::Call { in_call, peers } => {
+			Ev::Call {
+				in_call,
+				peers,
+				ringing_out,
+				ringing_in,
+			} => {
 				self.in_call = in_call;
 				self.call_peers = peers;
+				self.ringing_out = ringing_out;
+				self.ringing_in = ringing_in;
 				if !in_call {
 					self.speaking.clear();
 				}
@@ -427,7 +440,33 @@ impl App {
 		}
 	}
 
+	fn incoming_calls(&mut self, ui: &mut Ui) {
+		let callers = self.ringing_in.clone();
+		for from in callers {
+			let name = self.name_of(&from);
+			egui::Frame::new()
+				.fill(ACCENT.gamma_multiply(0.35))
+				.corner_radius(CornerRadius::same(10))
+				.inner_margin(Margin::same(10))
+				.show(ui, |ui| {
+					ui.horizontal(|ui| {
+						ui.label(RichText::new(format!("{name} is calling")).strong());
+						if ui.add(egui::Button::new("Accept").fill(GOOD)).clicked() {
+							self.send(Cmd::AcceptCall(from.clone()));
+						}
+						if ui.button("Decline").clicked() {
+							self.send(Cmd::DeclineCall(from.clone()));
+						}
+					});
+				});
+			ui.add_space(6.0);
+		}
+	}
+
 	fn conversation(&mut self, ui: &mut Ui) {
+		if !self.ringing_in.is_empty() {
+			self.incoming_calls(ui);
+		}
 		let Some(active_id) = self.active.clone() else {
 			ui.centered_and_justified(|ui| {
 				ui.label(RichText::new("Pick a friend or conversation to start").color(MUTED));
@@ -444,6 +483,11 @@ impl App {
 			ui.heading(title.clone());
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if self.in_call {
+					let mute_label = if self.muted { "Unmute" } else { "Mute" };
+					if ui.button(mute_label).clicked() {
+						self.muted = !self.muted;
+						self.send(Cmd::SetMuted(self.muted));
+					}
 					if ui
 						.add(egui::Button::new("Leave call").fill(DANGER))
 						.clicked()
@@ -457,6 +501,23 @@ impl App {
 						"In call".to_string()
 					};
 					ui.label(RichText::new(text).color(GOOD));
+					if !self.ringing_out.is_empty() {
+						ui.label(
+							RichText::new(format!("Calling {}", self.ringing_out.len()))
+								.color(MUTED),
+						);
+					}
+					let not_in_call = peers.iter().any(|p| !self.call_peers.contains(p));
+					if not_in_call
+						&& ui
+							.add(egui::Button::new("Ring others").fill(ACCENT))
+							.clicked()
+					{
+						self.send(Cmd::StartCall(peers.clone()));
+					}
+					if self.muted {
+						ui.label(RichText::new("Muted").color(MUTED));
+					}
 				} else if ui
 					.add_enabled(
 						!peers.is_empty(),

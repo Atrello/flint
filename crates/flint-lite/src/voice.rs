@@ -16,6 +16,20 @@ pub const RATE: u32 = 48_000;
 /// 20 ms of mono audio at 48 kHz.
 pub const FRAME: usize = 960;
 pub const FRAME_DURATION: Duration = Duration::from_millis(20);
+/// One frame of a tone that repeats: `on_frames` of tone, then silence, out of every `period_frames`.
+pub fn cadence_frame(index: u64, freq: f32, on_frames: u64, period_frames: u64) -> Vec<f32> {
+	let on = (index % period_frames) < on_frames;
+	(0..FRAME)
+		.map(|k| {
+			if !on {
+				return 0.0;
+			}
+			let t = (index * FRAME as u64 + k as u64) as f32 / RATE as f32;
+			0.15 * (2.0 * std::f32::consts::PI * freq * t).sin()
+		})
+		.collect()
+}
+
 /// Remote audio queued per speaker, at most this much (about 300 ms), so latency stays bounded.
 const MAX_QUEUED: usize = (RATE as usize * 3) / 10;
 

@@ -294,6 +294,13 @@ impl Net {
 				}
 			}
 			Cmd::LeaveCall => self.p2p.leave_call().await,
+			Cmd::SetMuted(muted) => self.p2p.set_muted(muted),
+			Cmd::AcceptCall(from) => {
+				if let Err(e) = self.p2p.accept_call(&from).await {
+					self.error(format!("Could not join the call: {e}"));
+				}
+			}
+			Cmd::DeclineCall(from) => self.p2p.decline_call(&from).await,
 		}
 	}
 
