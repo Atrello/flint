@@ -50,10 +50,13 @@ use crate::{
 };
 
 pub const SCREEN_CHANNEL: &str = "screen";
+pub const CAMERA_CHANNEL: &str = "camera";
 const CHUNK: usize = 16 * 1024;
 /// Frames are dropped for a viewer whose send buffer is this full, so a slow link lags instead of queueing.
 const MAX_BUFFERED: usize = 4 * 1024 * 1024;
 const FRAME_INTERVAL: Duration = Duration::from_millis(125);
+/// Camera runs at about 15 frames per second.
+const CAMERA_INTERVAL: Duration = Duration::from_millis(66);
 /// Report progress to the UI every this many decoded voice frames (one second).
 const VOICE_REPORT_EVERY: u64 = 50;
 /// How long a ring lasts before it is declined or cancelled.
@@ -107,6 +110,9 @@ struct Inner {
 	frames: watch::Sender<Option<Frame>>,
 	source: Source,
 	capture: StdMutex<Option<JoinHandle<()>>>,
+	camera_frames: watch::Sender<Option<Frame>>,
+	camera_on: AtomicBool,
+	camera_capture: StdMutex<Option<JoinHandle<()>>>,
 	in_call: AtomicBool,
 	muted: AtomicBool,
 	/// Incoming voice offers waiting for the user: peer -> (call id, offer SDP).
@@ -146,6 +152,7 @@ impl P2p {
 		// WebRTC's DTLS needs a process-wide rustls provider. Installing twice is harmless.
 		let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 		let (frames, _) = watch::channel(None);
+		let (camera_frames, _) = watch::channel(None);
 		let (mic_tx, mic_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<f32>>();
 		let mixer = Mixer::default();
 		let inner = Arc::new(Inner {
@@ -157,6 +164,9 @@ impl P2p {
 			frames,
 			source,
 			capture: StdMutex::new(None),
+			camera_frames,
+			camera_on: AtomicBool::new(false),
+			camera_capture: StdMutex::new(None),
 			in_call: AtomicBool::new(false),
 			muted: AtomicBool::new(false),
 			pending: Mutex::new(HashMap::new()),
@@ -216,8 +226,19 @@ impl P2p {
 		self.inner.muted.store(muted, Ordering::SeqCst);
 	}
 
-	/// Leave the voice call. This closes every connection, which also ends any share.
+	/// Turn the camera on or off. Frames go only to peers who have joined the call.
+	pub fn set_camera(&self, on: bool) {
+		self.inner.camera_on.store(on, Ordering::SeqCst);
+		if on {
+			self.ensure_camera_capture();
+		} else {
+			self.inner.camera_frames.send_replace(None);
+		}
+	}
+
+	/// Leave the voice call. This closes every connection, which also ends any share and the camera.
 	pub async fn leave_call(&self) {
+		self.set_camera(false);
 		self.inner.in_call.store(false, Ordering::SeqCst);
 		let all: Vec<(String, String)> = self
 			.inner
@@ -358,7 +379,30 @@ impl P2p {
 				let alive_open = alive.clone();
 				dc.on_open(Box::new(move || {
 					Box::pin(async move {
-						tokio::spawn(send_frames(dc_open, rx, alive_open));
+						tokio::spawn(send_frames(dc_open, rx, alive_open, None));
+					})
+				}));
+			}
+			// The camera channel is created with every connection, so a camera can start later
+			// without renegotiating. Its frames only flow to peers who have joined the call.
+			let camera_dc = pc
+				.create_data_channel(CAMERA_CHANNEL, None)
+				.await
+				.map_err(s)?;
+			{
+				let crx = self.inner.camera_frames.subscribe();
+				let dc_open = camera_dc.clone();
+				let alive_open = alive.clone();
+				let inner = self.inner.clone();
+				let peer_id = peer.clone();
+				camera_dc.on_open(Box::new(move || {
+					Box::pin(async move {
+						tokio::spawn(send_frames(
+							dc_open,
+							crx,
+							alive_open,
+							Some((inner, peer_id)),
+						));
 					})
 				}));
 			}
@@ -706,6 +750,7 @@ impl P2p {
 		pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
 			let emit = emit.clone();
 			let from = from.clone();
+			let camera = dc.label() == CAMERA_CHANNEL;
 			Box::pin(async move {
 				let assembly = Arc::new(StdMutex::new(Assembly::default()));
 				dc.on_message(Box::new(move |msg: DataChannelMessage| {
@@ -722,6 +767,7 @@ impl P2p {
 								match capture::decode_jpeg(&jpeg) {
 									Ok((width, height, rgba)) => emit(Ev::Frame {
 										from,
+										camera,
 										width,
 										height,
 										rgba,
@@ -831,6 +877,46 @@ impl P2p {
 		}
 	}
 
+	fn ensure_camera_capture(&self) {
+		let mut slot = self
+			.inner
+			.camera_capture
+			.lock()
+			.unwrap_or_else(|e| e.into_inner());
+		if slot.as_ref().is_some_and(|h| !h.is_finished()) {
+			return;
+		}
+		let inner = self.inner.clone();
+		*slot = Some(tokio::spawn(async move {
+			let source = inner.source;
+			let mut counter = 0u64;
+			let mut tick = tokio::time::interval(CAMERA_INTERVAL);
+			tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+			while inner.camera_on.load(Ordering::SeqCst) {
+				tick.tick().await;
+				counter += 1;
+				let c = counter;
+				match tokio::task::spawn_blocking(move || capture::grab_camera_jpeg(source, c))
+					.await
+				{
+					Ok(Ok(Some(jpeg))) => {
+						inner.camera_frames.send_replace(Some(Frame {
+							seq: c,
+							jpeg: Arc::new(jpeg),
+						}));
+					}
+					Ok(Ok(None)) => {}
+					Ok(Err(e)) => {
+						(inner.emit)(Ev::Notice(e));
+						inner.camera_on.store(false, Ordering::SeqCst);
+						(inner.emit)(Ev::Camera(false));
+					}
+					Err(_) => {}
+				}
+			}
+		}));
+	}
+
 	fn ensure_capture(&self) {
 		let mut slot = self.inner.capture.lock().unwrap_or_else(|e| e.into_inner());
 		if slot.as_ref().is_some_and(|h| !h.is_finished()) {
@@ -935,10 +1021,12 @@ async fn voice_sender(inner: Arc<Inner>, mut mic: tokio::sync::mpsc::UnboundedRe
 }
 
 /// Send each new frame to one viewer until the peer is dropped.
+/// Send each new frame on `dc`. With `gate`, frames go only while that peer has joined the call.
 async fn send_frames(
 	dc: Arc<RTCDataChannel>,
 	mut rx: watch::Receiver<Option<Frame>>,
 	alive: Arc<AtomicBool>,
+	gate: Option<(Arc<Inner>, String)>,
 ) {
 	let mut last = 0u64;
 	while alive.load(Ordering::SeqCst) {
@@ -953,6 +1041,12 @@ async fn send_frames(
 			continue;
 		}
 		last = frame.seq;
+		if let Some((inner, peer)) = &gate {
+			let joined = inner.peers.lock().await.get(peer).is_some_and(|p| p.joined);
+			if !joined {
+				continue;
+			}
+		}
 		if dc.buffered_amount().await > MAX_BUFFERED {
 			continue;
 		}
@@ -1097,6 +1191,7 @@ mod loopback {
 						width,
 						height,
 						rgba,
+						..
 					}) if frame.is_none() => {
 						frame = Some((from, width, height, rgba.len()));
 					}
@@ -1204,6 +1299,43 @@ mod ring_tests {
 		.unwrap();
 		assert!(connected.is_some(), "caller connects after accept");
 		let _ = b_ev;
+		a.leave_call().await;
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn camera_frames_reach_a_joined_peer() {
+		let (a, b, a_ev, b_ev) = pair();
+		a.start_call(vec!["b".into()]).await.expect("start call");
+		let b_ev = tokio::task::spawn_blocking(move || {
+			let rang = wait(&b_ev, |e| match e {
+				Ev::Call { ringing_in, .. } if ringing_in.contains(&"a".to_string()) => Some(()),
+				_ => None,
+			});
+			assert!(rang.is_some(), "callee is rung");
+			b_ev
+		})
+		.await
+		.unwrap();
+		b.accept_call("a").await.expect("accept");
+		a.set_camera(true);
+
+		let got = tokio::task::spawn_blocking(move || {
+			wait(&b_ev, |e| match e {
+				Ev::Frame {
+					from,
+					camera: true,
+					width,
+					height,
+					..
+				} => Some((from.clone(), *width, *height)),
+				_ => None,
+			})
+		})
+		.await
+		.unwrap();
+		assert_eq!(got, Some(("a".to_string(), 640, 360)));
+		a.set_camera(false);
+		let _ = a_ev;
 		a.leave_call().await;
 	}
 

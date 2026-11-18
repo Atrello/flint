@@ -43,6 +43,9 @@ pub struct App {
 	screens: HashMap<String, TextureHandle>,
 	screen_size: HashMap<String, [usize; 2]>,
 	watching: Option<String>,
+	/// Latest camera frame per peer, shown as tiles during a call.
+	cameras: HashMap<String, TextureHandle>,
+	camera_on: bool,
 	in_call: bool,
 	call_peers: Vec<String>,
 	speaking: HashMap<String, u64>,
@@ -81,6 +84,8 @@ impl App {
 			screens: HashMap::new(),
 			screen_size: HashMap::new(),
 			watching: None,
+			cameras: HashMap::new(),
+			camera_on: false,
 			in_call: false,
 			call_peers: Vec::new(),
 			speaking: HashMap::new(),
@@ -117,6 +122,8 @@ impl App {
 				self.incoming.clear();
 				self.screens.clear();
 				self.screen_size.clear();
+				self.cameras.clear();
+				self.camera_on = false;
 				self.watching = None;
 			}
 			Ev::Channels(list) => self.channels = list,
@@ -152,7 +159,10 @@ impl App {
 				self.ringing_in = ringing_in;
 				if !in_call {
 					self.speaking.clear();
+					self.camera_on = false;
 				}
+				self.cameras
+					.retain(|peer, _| self.call_peers.contains(peer));
 			}
 			Ev::Voice { from, frames } => {
 				self.speaking.insert(from, frames);
@@ -170,11 +180,34 @@ impl App {
 				self.outgoing = outgoing;
 				self.incoming = incoming;
 			}
+			Ev::Camera(on) => self.camera_on = on,
+			Ev::Frame {
+				from,
+				camera: true,
+				width,
+				height,
+				rgba,
+			} => {
+				let image =
+					ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &rgba);
+				match self.cameras.get_mut(&from) {
+					Some(handle) => handle.set(image, TextureOptions::LINEAR),
+					None => {
+						let handle = ctx.load_texture(
+							format!("camera-{from}"),
+							image,
+							TextureOptions::LINEAR,
+						);
+						self.cameras.insert(from, handle);
+					}
+				}
+			}
 			Ev::Frame {
 				from,
 				width,
 				height,
 				rgba,
+				..
 			} => {
 				let image =
 					ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &rgba);
@@ -483,6 +516,15 @@ impl App {
 			ui.heading(title.clone());
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if self.in_call {
+					let camera_label = if self.camera_on {
+						"Camera off"
+					} else {
+						"Camera on"
+					};
+					if ui.button(camera_label).clicked() {
+						self.camera_on = !self.camera_on;
+						self.send(Cmd::SetCamera(self.camera_on));
+					}
 					let mute_label = if self.muted { "Unmute" } else { "Mute" };
 					if ui.button(mute_label).clicked() {
 						self.muted = !self.muted;
@@ -549,6 +591,26 @@ impl App {
 			});
 		});
 		ui.separator();
+
+		if self.in_call && !self.cameras.is_empty() {
+			let mut peers: Vec<String> = self.cameras.keys().cloned().collect();
+			peers.sort();
+			ui.horizontal_wrapped(|ui| {
+				for peer in peers {
+					let Some(texture) = self.cameras.get(&peer) else {
+						continue;
+					};
+					let size = texture.resolution_vec2();
+					let scale = (150.0 / size.y).min(1.0);
+					let name = self.name_of(&peer);
+					ui.vertical(|ui| {
+						ui.add(egui::Image::new((texture.id(), size * scale)));
+						ui.label(RichText::new(name).small().color(MUTED));
+					});
+				}
+			});
+			ui.add_space(8.0);
+		}
 
 		if let Some(watching) = self.watching.clone() {
 			if let Some(texture) = self.screens.get(&watching) {

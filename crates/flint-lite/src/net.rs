@@ -307,6 +307,7 @@ impl Net {
 			}
 			Cmd::LeaveCall => self.p2p.leave_call().await,
 			Cmd::SetMuted(muted) => self.p2p.set_muted(muted),
+			Cmd::SetCamera(on) => self.p2p.set_camera(on),
 			Cmd::AcceptCall(from) => {
 				if let Err(e) = self.p2p.accept_call(&from).await {
 					self.error(format!("Could not join the call: {e}"));
@@ -678,7 +679,11 @@ mod e2e {
 			.unwrap();
 		for i in [1usize, 2] {
 			let from = wait(&clients[i].1, "screen frame in group", |e| match e {
-				Ev::Frame { from, .. } => Some(from.clone()),
+				Ev::Frame {
+					from,
+					camera: false,
+					..
+				} => Some(from.clone()),
 				_ => None,
 			});
 			assert_eq!(from, ids[0]);
